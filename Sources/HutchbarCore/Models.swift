@@ -19,10 +19,13 @@ public struct SessionSnapshot: Equatable, Sendable, Identifiable {
   public var lastActivity: Date
   /// When the session entered its current waiting state; nil while running or finished.
   public var waitingSince: Date?
+  /// Full working directory, kept in memory only to locate the agent process.
+  /// Never displayed, logged or persisted (see docs/specs/panel-v2.md, section 3).
+  public var cwd: String?
 
   public init(
     id: String, agent: AgentKind, state: SessionState, projectName: String, title: String? = nil,
-    lastActivity: Date, waitingSince: Date? = nil
+    lastActivity: Date, waitingSince: Date? = nil, cwd: String? = nil
   ) {
     self.id = id
     self.agent = agent
@@ -31,6 +34,7 @@ public struct SessionSnapshot: Equatable, Sendable, Identifiable {
     self.title = title
     self.lastActivity = lastActivity
     self.waitingSince = waitingSince
+    self.cwd = cwd
   }
 }
 
