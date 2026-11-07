@@ -21,6 +21,11 @@ while IFS= read -r -d '' file; do
 done < <(git diff --cached --name-only --diff-filter=ACMR -z)
 if [[ "$has_swift" == 1 ]]; then
   if command -v swiftlint >/dev/null 2>&1; then
+    # Without Xcode, SwiftLint cannot find sourcekitd; point it at Command Line Tools.
+    developer_dir=$(xcode-select -p 2>/dev/null || true)
+    if [[ -z "${TOOLCHAIN_DIR:-}" && "$developer_dir" == */CommandLineTools ]]; then
+      export TOOLCHAIN_DIR="$developer_dir"
+    fi
     while IFS= read -r -d '' file; do
       swiftlint lint --strict --config "$PWD/.swiftlint.yml" "$file"
     done < <(find "$work" -name '*.swift' -print0)
