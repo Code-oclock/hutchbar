@@ -229,6 +229,7 @@ public final class SessionStore {
       var merged = existing
       if merged.title == nil { merged.title = incoming.title }
       if merged.projectName.isEmpty { merged.projectName = incoming.projectName }
+      if merged.cwd == nil || merged.cwd?.isEmpty == true { merged.cwd = incoming.cwd }
       return merged
     }
 
@@ -236,12 +237,14 @@ public final class SessionStore {
       var merged = existing
       if merged.title == nil { merged.title = incoming.title }
       if merged.projectName.isEmpty { merged.projectName = incoming.projectName }
+      if merged.cwd == nil || merged.cwd?.isEmpty == true { merged.cwd = incoming.cwd }
       return merged
     }
 
     var merged = incoming
     if merged.title == nil { merged.title = existing.title }
     if merged.projectName.isEmpty { merged.projectName = existing.projectName }
+    if merged.cwd == nil || merged.cwd?.isEmpty == true { merged.cwd = existing.cwd }
     return merged
   }
 }

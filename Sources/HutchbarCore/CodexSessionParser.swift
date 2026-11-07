@@ -45,76 +45,17 @@ public enum CodexSessionParser {
   /// Inactivity timeout (30 minutes) after which an active session transitions to finished.
   public static let inactivityTimeout: TimeInterval = 30 * 60
 
-  /// Determines whether a session is inactive based on last activity and the current clock time.
-  public static func isInactive(
-    lastActivity: Date,
-    now: Date,
-    timeout: TimeInterval = inactivityTimeout
-  ) -> Bool {
-    now.timeIntervalSince(lastActivity) >= timeout
-  }
-
-  /// Applies the 30-minute inactivity rule to an active session snapshot.
-  public static func applyInactivityTimeout(
-    to snapshot: SessionSnapshot,
-    now: Date,
-    timeout: TimeInterval = inactivityTimeout
-  ) -> SessionSnapshot {
-    guard snapshot.state != .finished,
-      isInactive(lastActivity: snapshot.lastActivity, now: now, timeout: timeout)
-    else {
-      return snapshot
-    }
-    var updated = snapshot
-    updated.state = .finished
-    updated.waitingSince = nil
-    return updated
-  }
-
-  /// Overload for optional session snapshot.
-  public static func applyInactivityTimeout(
-    to optionalSnapshot: SessionSnapshot?,
-    now: Date,
-    timeout: TimeInterval = inactivityTimeout
-  ) -> SessionSnapshot? {
-    guard let snapshot = optionalSnapshot else { return nil }
-    let updated: SessionSnapshot = applyInactivityTimeout(to: snapshot, now: now, timeout: timeout)
-    return updated
-  }
-
-  /// Alias for applying the inactivity rule to a session snapshot.
-  public static func applyInactivityRule(
-    to snapshot: SessionSnapshot,
-    now: Date,
-    timeout: TimeInterval = inactivityTimeout
-  ) -> SessionSnapshot {
-    applyInactivityTimeout(to: snapshot, now: now, timeout: timeout)
-  }
-
-  /// Overload for optional session snapshot.
-  public static func applyInactivityRule(
-    to optionalSnapshot: SessionSnapshot?,
-    now: Date,
-    timeout: TimeInterval = inactivityTimeout
-  ) -> SessionSnapshot? {
-    applyInactivityTimeout(to: optionalSnapshot, now: now, timeout: timeout)
-  }
-
   /// Parses a batch of Codex JSONL lines into an updated session snapshot, latest quota,
   /// and skipped lines count.
   public static func parse(
-    lines: [JSONLLine],
-    current: SessionSnapshot?,
-    now: Date
+    lines: [JSONLLine], current: SessionSnapshot?, now: Date
   ) -> CodexParseResult {
     parseInternal(lines, current: current, now: now)
   }
 
   /// Convenience overload without argument label for lines.
   public static func parse(
-    _ lines: [JSONLLine],
-    current: SessionSnapshot?,
-    now: Date
+    _ lines: [JSONLLine], current: SessionSnapshot?, now: Date
   ) -> CodexParseResult {
     parseInternal(lines, current: current, now: now)
   }
@@ -141,10 +82,12 @@ public enum CodexSessionParser {
 
   private static func makeQuotaWindow(from payload: CodexRateLimitWindow) -> QuotaWindow {
     let minutes = payload.windowMinutes ?? 0
-    let rawPercent = payload.usedPercent ?? 0.0
-    let clampedPercent = min(100.0, max(0.0, rawPercent))
-    let resetsAt = payload.resetsAt?.date
-    return QuotaWindow(windowMinutes: minutes, usedPercent: clampedPercent, resetsAt: resetsAt)
+    let clampedPercent = min(100.0, max(0.0, payload.usedPercent ?? 0.0))
+    return QuotaWindow(
+      windowMinutes: minutes,
+      usedPercent: clampedPercent,
+      resetsAt: payload.resetsAt?.date
+    )
   }
 
   private static func makeAccountQuota(
@@ -159,12 +102,7 @@ public enum CodexSessionParser {
       windows.append(makeQuotaWindow(from: secondary))
     }
     let planType = rateLimits.planType?.trimmingCharacters(in: .whitespacesAndNewlines)
-    let accountName: String = {
-      if let planType, !planType.isEmpty {
-        return planType
-      }
-      return "codex"
-    }()
+    let accountName = (planType?.isEmpty == false) ? (planType ?? "codex") : "codex"
     return AccountQuota(
       agent: .codex,
       accountName: accountName,
@@ -177,6 +115,7 @@ public enum CodexSessionParser {
     record: CodexRecord,
     snapshot: SessionSnapshot?,
     pendingProjectName: inout String?,
+    pendingCwd: inout String?,
     recordDate: Date?,
     now: Date
   ) -> (updatedSnapshot: SessionSnapshot?, lineConsumed: Bool) {
@@ -198,6 +137,9 @@ public enum CodexSessionParser {
     if let project {
       pendingProjectName = project
     }
+    if let cwd = payload?.cwd, !cwd.isEmpty {
+      pendingCwd = cwd
+    }
 
     let activityDate = payload?.timestamp?.date ?? recordDate ?? snapshot?.lastActivity ?? now
 
@@ -206,8 +148,12 @@ public enum CodexSessionParser {
     }
 
     let projectName = project ?? pendingProjectName ?? snapshot?.projectName ?? ""
+    let resolvedCwd = payload?.cwd ?? pendingCwd ?? snapshot?.cwd
     if var existing = snapshot {
       existing.projectName = projectName
+      if let resolvedCwd, !resolvedCwd.isEmpty {
+        existing.cwd = resolvedCwd
+      }
       if activityDate >= existing.lastActivity {
         existing.lastActivity = activityDate
       }
@@ -219,7 +165,8 @@ public enum CodexSessionParser {
           projectName: existing.projectName,
           title: existing.title,
           lastActivity: existing.lastActivity,
-          waitingSince: existing.waitingSince
+          waitingSince: existing.waitingSince,
+          cwd: existing.cwd
         )
       }
       return (existing, true)
@@ -232,7 +179,8 @@ public enum CodexSessionParser {
       projectName: projectName,
       title: nil,
       lastActivity: activityDate,
-      waitingSince: activityDate
+      waitingSince: activityDate,
+      cwd: resolvedCwd
     )
     return (createdSnapshot, true)
   }
@@ -241,13 +189,16 @@ public enum CodexSessionParser {
     payload: CodexPayload?,
     recordDate: Date?,
     snapshot: inout SessionSnapshot?,
-    pendingProjectName: inout String?
+    pendingProjectName: inout String?,
+    pendingCwd: inout String?
   ) {
     if let cwd = payload?.cwd, !cwd.isEmpty {
       let project = extractProjectName(from: cwd)
       pendingProjectName = project
+      pendingCwd = cwd
       if var existing = snapshot {
         existing.projectName = project
+        existing.cwd = cwd
         snapshot = existing
       }
     }
@@ -320,6 +271,7 @@ public enum CodexSessionParser {
     var latestQuota: AccountQuota?
     var skippedLines = 0
     var pendingProjectName: String?
+    var pendingCwd: String?
     let decoder = JSONDecoder()
 
     for line in lines {
@@ -343,6 +295,7 @@ public enum CodexSessionParser {
           record: record,
           snapshot: snapshot,
           pendingProjectName: &pendingProjectName,
+          pendingCwd: &pendingCwd,
           recordDate: recordDate,
           now: now
         )
@@ -356,7 +309,8 @@ public enum CodexSessionParser {
           payload: record.payload,
           recordDate: recordDate,
           snapshot: &snapshot,
-          pendingProjectName: &pendingProjectName
+          pendingProjectName: &pendingProjectName,
+          pendingCwd: &pendingCwd
         )
 
       case "event_msg":
@@ -483,5 +437,59 @@ private struct FlexibleDate: Decodable {
       return
     }
     date = nil
+  }
+}
+
+// Inactivity helpers, kept outside the main body to respect type length limits.
+extension CodexSessionParser {
+  /// Determines whether a session is inactive based on last activity and the current clock time.
+  public static func isInactive(
+    lastActivity: Date,
+    now: Date,
+    timeout: TimeInterval = inactivityTimeout
+  ) -> Bool {
+    now.timeIntervalSince(lastActivity) >= timeout
+  }
+
+  /// Applies the 30-minute inactivity rule to an active session snapshot.
+  public static func applyInactivityTimeout(
+    to snapshot: SessionSnapshot,
+    now: Date,
+    timeout: TimeInterval = inactivityTimeout
+  ) -> SessionSnapshot {
+    guard snapshot.state != .finished,
+      isInactive(lastActivity: snapshot.lastActivity, now: now, timeout: timeout)
+    else {
+      return snapshot
+    }
+    var updated = snapshot
+    updated.state = .finished
+    updated.waitingSince = nil
+    return updated
+  }
+
+  /// Overload for optional session snapshot.
+  public static func applyInactivityTimeout(
+    to optionalSnapshot: SessionSnapshot?,
+    now: Date,
+    timeout: TimeInterval = inactivityTimeout
+  ) -> SessionSnapshot? {
+    guard let snapshot = optionalSnapshot else { return nil }
+    let updated: SessionSnapshot = applyInactivityTimeout(to: snapshot, now: now, timeout: timeout)
+    return updated
+  }
+
+  /// Alias for applying the inactivity rule to a session snapshot.
+  public static func applyInactivityRule(
+    to snapshot: SessionSnapshot, now: Date, timeout: TimeInterval = inactivityTimeout
+  ) -> SessionSnapshot {
+    applyInactivityTimeout(to: snapshot, now: now, timeout: timeout)
+  }
+
+  /// Overload for optional session snapshot.
+  public static func applyInactivityRule(
+    to optionalSnapshot: SessionSnapshot?, now: Date, timeout: TimeInterval = inactivityTimeout
+  ) -> SessionSnapshot? {
+    applyInactivityTimeout(to: optionalSnapshot, now: now, timeout: timeout)
   }
 }

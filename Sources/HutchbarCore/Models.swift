@@ -38,6 +38,30 @@ public struct SessionSnapshot: Equatable, Sendable, Identifiable {
   }
 }
 
+extension SessionSnapshot: CustomStringConvertible, CustomDebugStringConvertible,
+  CustomReflectable
+{
+  public var description: String {
+    let idPrefix = String(id.prefix(8))
+    return "SessionSnapshot(id: \(idPrefix), agent: \(agent), state: \(state), "
+      + "projectName: \(projectName))"
+  }
+
+  public var debugDescription: String { description }
+
+  public var customMirror: Mirror {
+    Mirror(
+      self,
+      children: [
+        "id": String(id.prefix(8)),
+        "agent": agent,
+        "state": state,
+        "projectName": projectName,
+      ]
+    )
+  }
+}
+
 /// One rate-limit window of a subscription (for example 5 hours or 7 days).
 public struct QuotaWindow: Equatable, Sendable {
   public let windowMinutes: Int
