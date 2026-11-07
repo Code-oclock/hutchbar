@@ -26,14 +26,19 @@ struct PanelView: View {
   /// False only for offscreen rendering (ImageRenderer does not draw ScrollView content).
   private let scrollable: Bool
 
+  /// Spending data; the panel v2 cards read it (see docs/specs/panel-v2.md, section 5).
+  let usage: UsageViewModel
+
   init(
     store: SessionStore,
+    usage: UsageViewModel = UsageViewModel(),
     onJump: @escaping @MainActor (SessionSnapshot) -> Void,
     onClose: (@MainActor () -> Void)? = nil,
     scrollable: Bool = true
   ) {
     self.scrollable = scrollable
     self.store = store
+    self.usage = usage
     self.onJump = onJump
     self.onClose = onClose
   }
