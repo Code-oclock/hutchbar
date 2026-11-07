@@ -1,0 +1,27 @@
+name: Bug report
+description: Report a reproducible problem without private agent data.
+title: 'bug: '
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: 'Do not attach raw agent logs, prompts, credentials, or private code. Report vulnerabilities privately through Security Advisories.'
+  - type: input
+    id: version
+    attributes:
+      label: Hutchbar version and macOS version
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Use a small synthetic example with no private data.
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true

@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability privately
+    url: https://github.com/Code-oclock/hutchbar/security/advisories/new
+    about: Use GitHub Private Vulnerability Reporting; do not open a public issue.

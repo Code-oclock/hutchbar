@@ -1,0 +1,172 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+permissions: {}
+concurrency:
+  group: release
+  cancel-in-progress: false
+jobs:
+  preflight:
+    if: >-
+      github.repository == 'Code-oclock/hutchbar' &&
+      github.actor == 'Code-oclock' && github.triggering_actor == 'Code-oclock'
+    runs-on: macos-26
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      commit: ${{ steps.source.outputs.commit }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify trusted source
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ./Tools/verify-release.sh
+          echo "commit=$(git rev-parse 'HEAD^{commit}')" >> "$GITHUB_OUTPUT"
+      - run: ./build.sh --test
+  build:
+    needs: preflight
+    runs-on: macos-26
+    timeout-minutes: 30
+    environment: release
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ needs.preflight.outputs.commit }}
+      - name: Reverify protected source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./Tools/verify-release.sh
+      - name: Check signing configuration
+        id: signing
+        env:
+          SIGNING_CERT_P12: ${{ secrets.SIGNING_CERT_P12 }}
+          SIGNING_CERT_PASSWORD: ${{ secrets.SIGNING_CERT_PASSWORD }}
+          SIGNING_IDENTITY: ${{ secrets.SIGNING_IDENTITY }}
+          NOTARY_API_KEY_P8: ${{ secrets.NOTARY_API_KEY_P8 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$SIGNING_CERT_P12" && -n "$SIGNING_CERT_PASSWORD" && -n "$SIGNING_IDENTITY" && -n "$NOTARY_API_KEY_P8" && -n "$NOTARY_KEY_ID" && -n "$NOTARY_ISSUER_ID" ]]; then
+            echo 'enabled=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'enabled=false' >> "$GITHUB_OUTPUT"
+            echo '::notice::Signing credentials incomplete or absent; building ad-hoc without notarization.'
+          fi
+      - name: Import Developer ID
+        if: steps.signing.outputs.enabled == 'true'
+        env:
+          SIGNING_CERT_P12: ${{ secrets.SIGNING_CERT_P12 }}
+          SIGNING_CERT_PASSWORD: ${{ secrets.SIGNING_CERT_PASSWORD }}
+          SIGNING_IDENTITY: ${{ secrets.SIGNING_IDENTITY }}
+        run: ./Tools/ci-setup-signing.sh
+      - run: ./build.sh --release --selftest
+      - name: Notarize app
+        if: steps.signing.outputs.enabled == 'true'
+        env:
+          NOTARY_API_KEY_P8: ${{ secrets.NOTARY_API_KEY_P8 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: ./Tools/notarize.sh build/Hutchbar.app
+      - name: Package
+        run: |
+          set -euo pipefail
+          ./Tools/verify-app.sh build/Hutchbar.app
+          ./Tools/make-dmg.sh
+          version=${GITHUB_REF_NAME#v}
+          ditto -c -k --keepParent build/Hutchbar.app "dist/Hutchbar-$version.zip"
+      - name: Sign and notarize DMG
+        if: steps.signing.outputs.enabled == 'true'
+        env:
+          NOTARY_API_KEY_P8: ${{ secrets.NOTARY_API_KEY_P8 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          dmg="dist/Hutchbar-${GITHUB_REF_NAME#v}.dmg"
+          codesign --force --sign "$HUTCHBAR_SIGN_IDENTITY" --timestamp "$dmg"
+          codesign --verify --strict "$dmg"
+          ./Tools/notarize.sh "$dmg"
+      - name: SBOM
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: '1'
+        run: |
+          brew install syft
+          syft scan dir:build/Hutchbar.app -o "spdx-json=dist/Hutchbar-${GITHUB_REF_NAME#v}.spdx.json"
+      - name: Notes and checksums
+        env:
+          SIGNED_BUILD: ${{ steps.signing.outputs.enabled }}
+        run: |
+          set -euo pipefail
+          python3 Tools/release-notes.py
+          (cd dist && shasum -a 256 ./*.zip ./*.dmg ./*.spdx.json ./release-notes.md > SHA256SUMS)
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-bundle
+          path: dist/
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
+      - name: Remove signing keychain
+        if: always()
+        run: |
+          keychain="$RUNNER_TEMP/hutchbar-release.keychain-db"
+          if [[ -f "$keychain" ]]; then security delete-keychain "$keychain"; fi
+  # GitHub only supports job-level token permissions. Isolate OIDC from publishing,
+  # and do not request attestation permissions at all for private repositories.
+  provenance:
+    needs: build
+    if: ${{ !github.event.repository.private }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-bundle
+          path: dist/
+      - run: cd dist && shasum -a 256 -c SHA256SUMS
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        if: ${{ !github.event.repository.private }}
+        with:
+          subject-path: |
+            dist/*.zip
+            dist/*.dmg
+            dist/*.spdx.json
+  publish:
+    needs: [preflight, build, provenance]
+    if: >-
+      always() && needs.build.result == 'success' &&
+      (needs.provenance.result == 'success' || needs.provenance.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ needs.preflight.outputs.commit }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-bundle
+          path: dist/
+      - run: cd dist && shasum -a 256 -c SHA256SUMS
+      - name: Publish and verify release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_COMMIT: ${{ needs.preflight.outputs.commit }}
+          PRIVATE_REPOSITORY: ${{ github.event.repository.private }}
+        run: ./Tools/publish-release.sh

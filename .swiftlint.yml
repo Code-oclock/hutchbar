@@ -1,0 +1,34 @@
+included:
+  - Sources
+  - Tests
+excluded:
+  - .build
+  - build
+only_rules:
+  - force_unwrapping
+  - force_try
+  - force_cast
+  - line_length
+  - function_body_length
+  - type_body_length
+  - file_length
+  - identifier_name
+  - type_name
+force_try: error
+force_cast: error
+force_unwrapping: error
+line_length:
+  warning: 120
+  error: 160
+function_body_length:
+  warning: 80
+  error: 120
+type_body_length:
+  warning: 300
+  error: 400
+file_length:
+  warning: 500
+  error: 700
+identifier_name:
+  min_length: 2
+  excluded: [fs, fm, id]

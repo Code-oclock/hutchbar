@@ -1,0 +1,33 @@
+#!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+warn() { printf '\033[33mWarning: %s\033[0m\n' "$*" >&2; }
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks git --pre-commit --staged --redact
+else
+  warn 'gitleaks is not installed; staged secret scan skipped.'
+fi
+# Lint staged bytes, not unstaged edits. Never reformat or restage a contributor's work.
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+has_swift=0
+while IFS= read -r -d '' file; do
+  if [[ "$file" == *.swift ]]; then
+    mkdir -p "$work/$(dirname "$file")"
+    git show ":$file" > "$work/$file"
+    has_swift=1
+  fi
+done < <(git diff --cached --name-only --diff-filter=ACMR -z)
+if [[ "$has_swift" == 1 ]]; then
+  if command -v swiftlint >/dev/null 2>&1; then
+    while IFS= read -r -d '' file; do
+      swiftlint lint --strict --config "$PWD/.swiftlint.yml" "$file"
+    done < <(find "$work" -name '*.swift' -print0)
+  else warn 'swiftlint is not installed; Swift lint skipped.'; fi
+  if command -v swift-format >/dev/null 2>&1; then
+    swift-format lint --strict --configuration "$PWD/.swift-format" --recursive "$work"
+  elif swift format --version >/dev/null 2>&1; then
+    swift format lint --strict --configuration "$PWD/.swift-format" --recursive "$work"
+  else warn 'swift-format is not installed; format check skipped.'; fi
+fi
