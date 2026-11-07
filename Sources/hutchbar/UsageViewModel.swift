@@ -7,9 +7,16 @@ import Observation
 @Observable
 final class UsageViewModel {
   var ledger: UsageLedger?
-  var period: UsagePeriod = .today
+  var period: UsagePeriod {
+    didSet {
+      onPeriodChange?(period)
+    }
+  }
 
-  init(ledger: UsageLedger? = nil) {
+  var onPeriodChange: ((UsagePeriod) -> Void)?
+
+  init(ledger: UsageLedger? = nil, period: UsagePeriod = .today) {
     self.ledger = ledger
+    self.period = period
   }
 }

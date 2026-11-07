@@ -6,8 +6,13 @@ import HutchbarCore
 /// Renders the menu bar status item image according to the status icon model.
 public enum StatusIconRenderer {
   private static let canvasHeight: CGFloat = 22.0
-  private static let ringDiameter: CGFloat = 10.0
-  private static let ringLineWidth: CGFloat = 1.5
+  private static let barWidth: CGFloat = 18.0
+  private static let barHeight: CGFloat = 3.0
+  private static let barRadius: CGFloat = 1.5
+  private static let barGap: CGFloat = 2.0
+  private static let dotDiameter: CGFloat = 6.0
+  private static let pillHeight: CGFloat = 14.0
+  private static let pillRadius: CGFloat = 7.0
   private static let spacing: CGFloat = 4.0
   private static let sidePadding: CGFloat = 2.0
 
@@ -21,126 +26,147 @@ public enum StatusIconRenderer {
   }
 
   public static func image(for model: StatusIconModel) -> NSImage {
-    let config = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
-    let fallbackSize = NSSize(width: 16.0, height: 12.0)
-    let baseSymbol = NSImage(
-      systemSymbolName: "terminal",
-      accessibilityDescription: "Hutchbar"
-    )
-    let symbolImage =
-      baseSymbol?.withSymbolConfiguration(config)
-      ?? NSImage(size: fallbackSize)
-    let symbolSize = symbolImage.size
+    let hasQuotas = (model.sessionRemaining != nil || model.weekRemaining != nil)
+    let hasPill = model.waitingCount > 0
 
+    let countText = "\(model.waitingCount)"
     let textAttributes: [NSAttributedString.Key: Any] = [
-      .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .semibold),
-      .foregroundColor: NSColor.labelColor,
+      .font: NSFont.monospacedDigitSystemFont(ofSize: 10.0, weight: .bold),
+      .foregroundColor: NSColor.white,
     ]
+    let textSize = (countText as NSString).size(withAttributes: textAttributes)
+    let pillWidth = max(pillHeight, ceil(textSize.width + 10.0))
 
-    var textSize = NSSize.zero
-    if let text = model.text {
-      textSize = (text as NSString).size(withAttributes: textAttributes)
+    var contentWidth: CGFloat = 0.0
+    if hasQuotas {
+      contentWidth += barWidth
+      if hasPill {
+        contentWidth += spacing + pillWidth
+      }
+    } else {
+      contentWidth += hasPill ? pillWidth : dotDiameter
     }
 
-    var totalWidth = sidePadding + symbolSize.width
-    if model.text != nil {
-      totalWidth += spacing + textSize.width
-    }
-    if model.ringPercent != nil {
-      totalWidth += spacing + ringDiameter
-    }
-    totalWidth += sidePadding
-    let roundedWidth = ceil(totalWidth)
+    let totalWidth = sidePadding + contentWidth + sidePadding
+    let imageSize = NSSize(width: ceil(totalWidth), height: canvasHeight)
 
-    let imageSize = NSSize(width: roundedWidth, height: canvasHeight)
     let resultImage = NSImage(size: imageSize, flipped: false) { _ in
       var currentX = sidePadding
 
-      let symbolY = (canvasHeight - symbolSize.height) / 2.0
-      let symbolRect = NSRect(
-        x: currentX,
-        y: symbolY,
-        width: symbolSize.width,
-        height: symbolSize.height
-      )
-      symbolImage.draw(in: symbolRect)
-      currentX += symbolSize.width
+      if hasQuotas {
+        let sessionCritical =
+          (model.sessionRemaining != nil && (model.sessionRemaining ?? 0.0) < 10.0)
+        let weekCritical = (model.weekRemaining != nil && (model.weekRemaining ?? 0.0) < 10.0)
 
-      if let text = model.text {
-        currentX += spacing
-        let textY = (canvasHeight - textSize.height) / 2.0
-        let textRect = NSRect(
-          x: currentX,
-          y: textY,
-          width: textSize.width,
-          height: textSize.height
-        )
-        (text as NSString).draw(in: textRect, withAttributes: textAttributes)
-        currentX += textSize.width
+        // Session remaining on top (y = 12)
+        drawBar(
+          originX: currentX, originY: 12.0, remaining: model.sessionRemaining,
+          isCritical: sessionCritical)
+        // Week remaining on bottom (y = 7)
+        drawBar(
+          originX: currentX, originY: 7.0, remaining: model.weekRemaining, isCritical: weekCritical)
+        currentX += barWidth
+
+        if hasPill {
+          currentX += spacing
+          drawPill(
+            at: currentX,
+            width: pillWidth,
+            text: countText,
+            textSize: textSize,
+            attributes: textAttributes,
+            style: model.pillStyle
+          )
+        }
+      } else {
+        if hasPill {
+          drawPill(
+            at: currentX,
+            width: pillWidth,
+            text: countText,
+            textSize: textSize,
+            attributes: textAttributes,
+            style: model.pillStyle
+          )
+        } else {
+          drawNeutralDot(at: currentX)
+        }
       }
 
-      if let percent = model.ringPercent {
-        currentX += spacing
-        let ringY = (canvasHeight - ringDiameter) / 2.0
-        let ringRect = NSRect(
-          x: currentX,
-          y: ringY,
-          width: ringDiameter,
-          height: ringDiameter
-        )
-        drawRing(in: ringRect, percent: percent, level: model.ringLevel)
-        currentX += ringDiameter
-      }
       return true
     }
 
-    resultImage.isTemplate = (model.ringLevel == .normal)
+    let sessionCritical = (model.sessionRemaining != nil && (model.sessionRemaining ?? 0.0) < 10.0)
+    let weekCritical = (model.weekRemaining != nil && (model.weekRemaining ?? 0.0) < 10.0)
+    let hasRedBar = hasQuotas && (sessionCritical || weekCritical)
+    resultImage.isTemplate = !hasRedBar && !hasPill
+    resultImage.accessibilityDescription = "Hutchbar"
     return resultImage
   }
 
-  private static func drawRing(in rect: NSRect, percent: Double, level: StatusRingLevel) {
-    let clampedPercent = max(0.0, min(100.0, percent))
-    let center = NSPoint(x: rect.midX, y: rect.midY)
-    let radius = (rect.width - ringLineWidth) / 2.0
-
-    let trackColor: NSColor
-    let arcColor: NSColor
-    switch level {
-    case .critical:
-      trackColor = NSColor.systemRed.withAlphaComponent(0.25)
-      arcColor = NSColor.systemRed
-    case .warning:
-      trackColor = NSColor.systemOrange.withAlphaComponent(0.25)
-      arcColor = NSColor.systemOrange
-    case .normal:
-      trackColor = NSColor.labelColor.withAlphaComponent(0.25)
-      arcColor = NSColor.labelColor
-    }
+  private static func drawBar(
+    originX: CGFloat,
+    originY: CGFloat,
+    remaining: Double?,
+    isCritical: Bool
+  ) {
+    let barRect = NSRect(x: originX, y: originY, width: barWidth, height: barHeight)
+    let barColor = isCritical ? NSColor.systemRed : NSColor.labelColor
+    let trackColor = barColor.withAlphaComponent(0.25)
 
     let trackPath = NSBezierPath(
-      ovalIn: rect.insetBy(dx: ringLineWidth / 2.0, dy: ringLineWidth / 2.0)
+      roundedRect: barRect,
+      xRadius: barRadius,
+      yRadius: barRadius
     )
-    trackPath.lineWidth = ringLineWidth
-    trackColor.setStroke()
-    trackPath.stroke()
+    trackColor.setFill()
+    trackPath.fill()
 
-    guard clampedPercent > 0.0 else { return }
+    guard let remaining, remaining > 0.0 else { return }
+    let clampedRemaining = max(0.0, min(100.0, remaining))
+    let fillWidth = (clampedRemaining / 100.0) * barWidth
+    guard fillWidth > 0.0 else { return }
 
-    let startAngle: CGFloat = 90.0
-    let sweep = (clampedPercent / 100.0) * 360.0
-    let endAngle = startAngle - sweep
+    let fillRect = NSRect(x: originX, y: originY, width: fillWidth, height: barHeight)
+    NSGraphicsContext.current?.saveGraphicsState()
+    trackPath.addClip()
+    barColor.setFill()
+    fillRect.fill()
+    NSGraphicsContext.current?.restoreGraphicsState()
+  }
 
-    let arcPath = NSBezierPath()
-    arcPath.appendArc(
-      withCenter: center,
-      radius: radius,
-      startAngle: startAngle,
-      endAngle: endAngle,
-      clockwise: true
+  private static func drawPill(
+    at originX: CGFloat,
+    width: CGFloat,
+    text: String,
+    textSize: NSSize,
+    attributes: [NSAttributedString.Key: Any],
+    style: PillStyle
+  ) {
+    let pillY = (canvasHeight - pillHeight) / 2.0
+    let pillRect = NSRect(x: originX, y: pillY, width: width, height: pillHeight)
+    let pillPath = NSBezierPath(
+      roundedRect: pillRect,
+      xRadius: pillRadius,
+      yRadius: pillRadius
     )
-    arcPath.lineWidth = ringLineWidth
-    arcPath.lineCapStyle = .round
-    arcColor.setStroke()
-    arcPath.stroke()
+    let pillColor = (style == .approval) ? NSColor.systemOrange : NSColor.systemBlue
+    pillColor.setFill()
+    pillPath.fill()
+
+    let textX = pillRect.minX + (pillRect.width - textSize.width) / 2.0
+    let textY = pillRect.minY + (pillRect.height - textSize.height) / 2.0
+    (text as NSString).draw(
+      in: NSRect(x: textX, y: textY, width: textSize.width, height: textSize.height),
+      withAttributes: attributes
+    )
+  }
+
+  private static func drawNeutralDot(at originX: CGFloat) {
+    let dotY = (canvasHeight - dotDiameter) / 2.0
+    let dotRect = NSRect(x: originX, y: dotY, width: dotDiameter, height: dotDiameter)
+    let dotPath = NSBezierPath(ovalIn: dotRect)
+    NSColor.labelColor.withAlphaComponent(0.6).setFill()
+    dotPath.fill()
   }
 }

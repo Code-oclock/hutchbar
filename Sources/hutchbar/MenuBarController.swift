@@ -9,13 +9,19 @@ import SwiftUI
 @MainActor
 final class MenuBarController: NSObject, NSPopoverDelegate {
   private let store: SessionStore
+  private let usage: UsageViewModel
   private let settings: Settings
   private var statusItem: NSStatusItem?
   private let popover = NSPopover()
   private var isStopped = false
 
-  public init(store: SessionStore, settings: Settings) {
+  public init(
+    store: SessionStore,
+    usage: UsageViewModel = UsageViewModel(),
+    settings: Settings
+  ) {
     self.store = store
+    self.usage = usage
     self.settings = settings
     super.init()
 
@@ -38,15 +44,18 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     popover.behavior = .transient
     popover.animates = true
     popover.delegate = self
+    popover.contentSize = NSSize(width: 560, height: 480)
   }
 
   private func startObserving() {
     guard !isStopped else { return }
 
     withObservationTracking {
-      let waiting = store.waitingCount
-      let quota = store.maxFiveHourQuota
-      updateIcon(waitingCount: waiting, quotaPercent: quota)
+      let iconModel = StatusIconModel(
+        quotas: store.quotas,
+        waitingSessions: store.waiting
+      )
+      updateIcon(model: iconModel)
     } onChange: { [weak self] in
       Task { @MainActor [weak self] in
         guard let self, !self.isStopped else { return }
@@ -55,12 +64,9 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     }
   }
 
-  private func updateIcon(waitingCount: Int, quotaPercent: Double?) {
+  private func updateIcon(model: StatusIconModel) {
     guard let button = statusItem?.button else { return }
-    let icon = StatusIconRenderer.image(
-      waitingCount: waitingCount,
-      quotaPercent: quotaPercent
-    )
+    let icon = StatusIconRenderer.image(for: model)
     button.image = icon
   }
 
@@ -85,10 +91,19 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     if popover.isShown {
       popover.performClose(nil)
     } else {
-      let panel = PanelView(store: store) { session in
-        TerminalJumper.jump(to: session)
-      }
-      popover.contentViewController = NSHostingController(rootView: panel)
+      let panel = PanelView(
+        store: store,
+        usage: usage,
+        onJump: { session in
+          TerminalJumper.jump(to: session)
+        },
+        onClose: { [weak self] in
+          self?.popover.performClose(nil)
+        }
+      )
+      let hostingController = NSHostingController(rootView: panel)
+      hostingController.preferredContentSize = NSSize(width: 560, height: 480)
+      popover.contentViewController = hostingController
       popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
       NSApp.activate(ignoringOtherApps: true)
     }

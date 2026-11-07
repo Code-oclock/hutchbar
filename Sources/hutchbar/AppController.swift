@@ -6,18 +6,36 @@ import HutchbarCore
 @MainActor
 final class AppController {
   public let store: SessionStore
+  public let scanner: UsageScanner
+  public let usage: UsageViewModel
   public let settings: Settings
   private let coordinator: SourceCoordinator
   private let attention: AttentionPillController
 
   private var updatesTask: Task<Void, Never>?
+  private var usageTask: Task<Void, Never>?
   private var timer: Timer?
   private var isStopped = false
 
-  public init(settings: Settings = Settings()) {
+  public init(
+    settings: Settings = Settings(),
+    scanner: UsageScanner = UsageScanner()
+  ) {
     self.settings = settings
     let store = SessionStore(showFinished: settings.showFinished)
     self.store = store
+    self.scanner = scanner
+
+    let usage = UsageViewModel(period: settings.usagePeriod)
+    usage.onPeriodChange = { [weak settings] period in
+      settings?.usagePeriod = period
+    }
+    settings.onUsagePeriodChange = { [weak usage] period in
+      if usage?.period != period {
+        usage?.period = period
+      }
+    }
+    self.usage = usage
 
     var config = SourceCoordinator.Configuration()
     config.enabledSources = settings.enabledSources
@@ -52,6 +70,16 @@ final class AppController {
       }
     }
 
+    let scanner = self.scanner
+    usageTask = Task { [weak self, scanner] in
+      await scanner.start()
+      for await ledger in scanner.snapshots {
+        guard !Task.isCancelled else { break }
+        guard let self else { break }
+        self.usage.ledger = ledger
+      }
+    }
+
     let scheduledTimer = Timer(timeInterval: 5.0, repeats: true) { [weak self] _ in
       MainActor.assumeIsolated {
         guard let self, !self.isStopped else { return }
@@ -74,14 +102,19 @@ final class AppController {
     updatesTask?.cancel()
     updatesTask = nil
 
+    usageTask?.cancel()
+    usageTask = nil
+
     timer?.invalidate()
     timer = nil
 
     attention.stop()
 
     let coordinator = self.coordinator
+    let scanner = self.scanner
     Task {
       await coordinator.stop()
+      await scanner.stop()
     }
   }
 }

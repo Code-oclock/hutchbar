@@ -60,12 +60,21 @@ public final class Settings {
     static let showFinished = "hutchbar.showFinished"
     static let notifications = "hutchbar.notifications"
     static let enabledSources = "hutchbar.enabledSources"
+    static let usagePeriod = "hutchbar.usagePeriod"
   }
 
   private let userDefaults: UserDefaults
 
   public var onShowFinishedChange: ((Bool) -> Void)?
   public var onEnabledSourcesChange: ((Set<SourceKind>) -> Void)?
+  public var onUsagePeriodChange: ((UsagePeriod) -> Void)?
+
+  public var usagePeriod: UsagePeriod {
+    didSet {
+      userDefaults.set(usagePeriod.rawValue, forKey: Keys.usagePeriod)
+      onUsagePeriodChange?(usagePeriod)
+    }
+  }
 
   public var pillThreshold: PillThreshold {
     didSet {
@@ -131,6 +140,14 @@ public final class Settings {
 
     self.showFinished = userDefaults.bool(forKey: Keys.showFinished)
     self.notifications = userDefaults.bool(forKey: Keys.notifications)
+
+    if let storedPeriod = userDefaults.string(forKey: Keys.usagePeriod),
+      let period = UsagePeriod(rawValue: storedPeriod)
+    {
+      self.usagePeriod = period
+    } else {
+      self.usagePeriod = .today
+    }
 
     if let rawSources = userDefaults.stringArray(forKey: Keys.enabledSources) {
       let decoded = rawSources.compactMap { SourceKind(rawValue: $0) }

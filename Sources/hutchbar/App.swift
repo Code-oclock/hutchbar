@@ -15,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let controller = AppController(settings: settings)
     let menuBar = MenuBarController(
       store: controller.store,
+      usage: controller.usage,
       settings: settings
     )
     self.appController = controller
