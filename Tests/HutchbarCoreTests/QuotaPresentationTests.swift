@@ -140,8 +140,10 @@ struct QuotaPresentationTests {
     #expect(card.secondaryAccounts[0].accountName == "sec-middle")
     #expect(card.secondaryAccounts[1].accountName == "sec-oldest")
   }
+}
 
-  @Test func quotaPresentation_secondaryAccountsCompactString() {
+extension QuotaPresentationTests {
+  @Test func quotaPresentation_secondaryAccountsCompactString_exhausted() {
     guard let utc = TimeZone(secondsFromGMT: 0) else {
       Issue.record("Failed to create UTC timezone")
       return
@@ -173,7 +175,7 @@ struct QuotaPresentationTests {
     )
 
     let compactRu = presentationRu.card(for: .claudeCode)?.secondaryAccounts.first?.compactString
-    #expect(compactRu == "pro-1 · неделя 0 % · ↻ пн 10:00")
+    #expect(compactRu == "pro-1 · неделя исчерпана · до пн 10:00")
 
     let presentationEn = QuotaPresentation(
       quotas: [primaryQuota, secondaryQuota],
@@ -183,7 +185,52 @@ struct QuotaPresentationTests {
     )
 
     let compactEn = presentationEn.card(for: .claudeCode)?.secondaryAccounts.first?.compactString
-    #expect(compactEn == "pro-1 · week 0 % · ↻ Mon 10:00")
+    #expect(compactEn == "pro-1 · week used up · until Mon 10:00")
+  }
+
+  @Test func quotaPresentation_secondaryAccountsCompactString_remaining() {
+    guard let utc = TimeZone(secondsFromGMT: 0) else {
+      Issue.record("Failed to create UTC timezone")
+      return
+    }
+
+    // Resets in 2 days 7 hours = 2 * 86400 + 7 * 3600 = 198000s
+    let resetIn2d7h = baseTime.addingTimeInterval(198_000)
+
+    let primaryQuota = AccountQuota(
+      agent: .claudeCode,
+      accountName: "primary",
+      windows: [],
+      observedAt: baseTime
+    )
+    let secondaryQuota = AccountQuota(
+      agent: .claudeCode,
+      accountName: "pro-1",
+      windows: [
+        QuotaWindow(windowMinutes: 10080, usedPercent: 63.0, resetsAt: resetIn2d7h)
+      ],
+      observedAt: baseTime.addingTimeInterval(-100)
+    )
+
+    let presentationRu = QuotaPresentation(
+      quotas: [primaryQuota, secondaryQuota],
+      now: baseTime,
+      timeZone: utc,
+      language: .ru
+    )
+
+    let compactRu = presentationRu.card(for: .claudeCode)?.secondaryAccounts.first?.compactString
+    #expect(compactRu == "pro-1 · неделя: осталось 37 % · ↻ 2 д 7 ч")
+
+    let presentationEn = QuotaPresentation(
+      quotas: [primaryQuota, secondaryQuota],
+      now: baseTime,
+      timeZone: utc,
+      language: .en
+    )
+
+    let compactEn = presentationEn.card(for: .claudeCode)?.secondaryAccounts.first?.compactString
+    #expect(compactEn == "pro-1 · week: remaining 37% · ↻ 2d 7h")
   }
 
   @Test func quotaPresentation_remainingPercentAndLevels() {

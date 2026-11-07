@@ -148,7 +148,9 @@ struct PanelV2LogicTests {
     #expect(PanelV2Logic.formatCurrency(amount: 6.54, locale: ruLocale) == "$6,54")
     #expect(PanelV2Logic.formatCurrency(amount: 0.0, locale: usLocale) == "$0.00")
   }
+}
 
+extension PanelV2LogicTests {
   @Test func l10n_modelsWithoutPrice() {
     #expect(L10n.modelsWithoutPrice(language: .ru) == "модели без цены")
     #expect(L10n.modelsWithoutPrice(language: .en) == "models without price")
@@ -168,5 +170,119 @@ struct PanelV2LogicTests {
     )
     #expect(!labels.leading.isEmpty)
     #expect(!labels.trailing.isEmpty)
+  }
+
+  @Test func panelV2_providerSpendingText_allCostUnknown() {
+    let ru = PanelV2Logic.providerSpendingText(
+      cost: nil,
+      totalTokens: 12_000,
+      unknownTokens: 12_000,
+      language: .ru
+    )
+    #expect(ru == "— · 12k токенов")
+
+    let en = PanelV2Logic.providerSpendingText(
+      cost: nil,
+      totalTokens: 12_000,
+      unknownTokens: 12_000,
+      language: .en
+    )
+    #expect(en == "— · 12k tokens")
+  }
+
+  @Test func panelV2_providerSpendingText_partiallyUnknown() {
+    let ruLocale = Locale(identifier: "ru_RU")
+    let usLocale = Locale(identifier: "en_US")
+
+    let ru = PanelV2Logic.providerSpendingText(
+      cost: 5.10,
+      totalTokens: 50_000,
+      unknownTokens: 10_000,
+      locale: ruLocale,
+      language: .ru
+    )
+    #expect(ru == "$5,10 + модели без цены")
+
+    let en = PanelV2Logic.providerSpendingText(
+      cost: 5.10,
+      totalTokens: 50_000,
+      unknownTokens: 10_000,
+      locale: usLocale,
+      language: .en
+    )
+    #expect(en == "$5.10 + models without price")
+  }
+
+  @Test func panelV2_providerSpendingText_fullyKnown() {
+    let ruLocale = Locale(identifier: "ru_RU")
+    let usLocale = Locale(identifier: "en_US")
+
+    let ru = PanelV2Logic.providerSpendingText(
+      cost: 5.10,
+      totalTokens: 50_000,
+      unknownTokens: 0,
+      locale: ruLocale,
+      language: .ru
+    )
+    #expect(ru == "$5,10")
+
+    let en = PanelV2Logic.providerSpendingText(
+      cost: 5.10,
+      totalTokens: 50_000,
+      unknownTokens: 0,
+      locale: usLocale,
+      language: .en
+    )
+    #expect(en == "$5.10")
+  }
+
+  @Test func panelV2_providerSpendingText_zeroUsage() {
+    let usLocale = Locale(identifier: "en_US")
+    let text = PanelV2Logic.providerSpendingText(
+      cost: nil,
+      totalTokens: 0,
+      unknownTokens: 0,
+      locale: usLocale,
+      language: .en
+    )
+    #expect(text == "$0.00")
+  }
+
+  @Test func panelV2_l10n_noPrice() {
+    #expect(L10n.noPrice(language: .ru) == "нет цены")
+    #expect(L10n.noPrice(language: .en) == "no price")
+  }
+
+  @Test func panelV2_trendHourHelpers() {
+    #expect(PanelV2Logic.formatHourLabel(hour: 0) == "00:00")
+    #expect(PanelV2Logic.formatHourLabel(hour: 9) == "09:00")
+    #expect(PanelV2Logic.formatHourLabel(hour: 14) == "14:00")
+    #expect(PanelV2Logic.formatHourLabel(hour: 23) == "23:00")
+
+    var calendar = Calendar(identifier: .gregorian)
+    guard let utc = TimeZone(secondsFromGMT: 0) else { return }
+    calendar.timeZone = utc
+    let fixedDate = Date(timeIntervalSince1970: 1_700_000_000)
+    let hour = PanelV2Logic.currentHourIndex(now: fixedDate, calendar: calendar)
+    #expect(hour == 22)
+  }
+
+  @Test func panelV2_l10n_interfaceLanguagePreference() {
+    L10n.withLanguage(.en) {
+      #expect(L10n.currentLanguage() == .en)
+    }
+
+    let original = L10n.preference
+    defer { L10n.preference = original }
+
+    L10n.preference = .ru
+    #expect(L10n.currentLanguage(preferredLanguages: ["en-US"]) == .ru)
+
+    L10n.preference = .en
+    #expect(L10n.currentLanguage(preferredLanguages: ["ru-RU"]) == .en)
+
+    L10n.preference = .system
+    #expect(L10n.currentLanguage(preferredLanguages: ["ru-RU"]) == .ru)
+    #expect(L10n.currentLanguage(preferredLanguages: ["en-RU"]) == .en)
   }
 }

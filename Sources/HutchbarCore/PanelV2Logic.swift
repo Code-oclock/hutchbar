@@ -154,7 +154,51 @@ public enum PanelV2Logic {
     return "$\(formattedNumber)"
   }
 
+  // MARK: - Provider Spending Formatting
+
+  /// Formats spending text for an agent provider according to pricing availability:
+  /// - All cost unknown: «— · N токенов» / "— · N tokens"
+  /// - Partially unknown: «$5,10 + модели без цены» / "$5.10 + models without price"
+  /// - Fully known: «$5,10» / "$5.10"
+  public static func providerSpendingText(
+    cost: Double?,
+    totalTokens: Int,
+    unknownTokens: Int,
+    locale: Locale = .current,
+    language: L10n.Language = L10n.currentLanguage()
+  ) -> String {
+    if totalTokens > 0 && (cost == nil || unknownTokens >= totalTokens) {
+      let tokenStr = formatTokenCount(totalTokens)
+      let tokenWord = L10n.tokens(language: language)
+      return "— · \(tokenStr) \(tokenWord)"
+    }
+    if let cost {
+      let costStr = formatCurrency(amount: cost, locale: locale)
+      if unknownTokens > 0 {
+        let mark = L10n.modelsWithoutPrice(language: language)
+        return "\(costStr) + \(mark)"
+      }
+      return costStr
+    }
+    return formatCurrency(amount: 0.0, locale: locale)
+  }
+
   // MARK: - Trend Axis Labels
+
+  /// Returns the current hour component in 0...23 range.
+  public static func currentHourIndex(
+    now: Date = Date(),
+    calendar: Calendar = .current
+  ) -> Int {
+    calendar.component(.hour, from: now)
+  }
+
+  /// Formats an hour integer into HH:mm (e.g. 14 -> "14:00").
+  public static func formatHourLabel(
+    hour: Int
+  ) -> String {
+    String(format: "%02d:00", max(0, min(23, hour)))
+  }
 
   /// Formats leading and trailing edge labels for the trend dynamics chart.
   public static func formatTrendAxisLabels(

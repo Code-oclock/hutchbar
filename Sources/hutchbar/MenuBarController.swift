@@ -23,6 +23,7 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     self.store = store
     self.usage = usage
     self.settings = settings
+    L10n.preference = settings.language
     super.init()
 
     setupStatusItem()
@@ -91,6 +92,7 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     if popover.isShown {
       popover.performClose(nil)
     } else {
+      L10n.preference = settings.language
       let panel = PanelView(
         store: store,
         usage: usage,

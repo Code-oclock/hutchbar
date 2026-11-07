@@ -51,26 +51,39 @@ struct PanelTrendView: View {
   private func trendChart(points: [UsagePoint]) -> some View {
     VStack(spacing: 4) {
       let maxCost = max(points.map(\.costUSD).max() ?? 0.0, 0.001)
+      let currentHour = PanelV2Logic.currentHourIndex()
 
       HStack(alignment: .bottom, spacing: barSpacing(for: points.count)) {
         ForEach(points.indices, id: \.self) { index in
           let point = points[index]
           let isHovered = hoveredPoint?.date == point.date
-          let heightRatio = min(1.0, max(0.0, point.costUSD / maxCost))
+          let isCurrentHour = (usage.period == .today && index == currentHour)
 
           GeometryReader { geo in
             let availableHeight = geo.size.height
-            let barHeight = max(2.0, availableHeight * CGFloat(heightRatio))
 
             VStack {
               Spacer(minLength: 0)
-              RoundedRectangle(cornerRadius: 1.5)
-                .fill(
-                  isHovered
-                    ? Color.accentColor : Color.accentColor.opacity(point.costUSD > 0 ? 0.75 : 0.2)
-                )
-                .frame(height: barHeight)
+              if point.costUSD > 0 {
+                let heightRatio = min(1.0, max(0.0, point.costUSD / maxCost))
+                let barHeight = max(4.0, availableHeight * CGFloat(heightRatio))
+                RoundedRectangle(cornerRadius: 1.5)
+                  .fill(
+                    isHovered || isCurrentHour
+                      ? Color.accentColor : Color.accentColor.opacity(0.75)
+                  )
+                  .frame(height: barHeight)
+              } else {
+                Circle()
+                  .fill(
+                    isHovered || isCurrentHour
+                      ? Color.accentColor : Color.secondary.opacity(0.35)
+                  )
+                  .frame(width: 2.5, height: 2.5)
+                  .padding(.bottom, 1)
+              }
             }
+            .frame(maxWidth: .infinity)
           }
           .contentShape(Rectangle())
           .onHover { hovering in
@@ -89,6 +102,42 @@ struct PanelTrendView: View {
         period: usage.period,
         points: points
       )
+      axisLabelsView(labels: labels, currentHour: currentHour)
+    }
+  }
+
+  @ViewBuilder
+  private func axisLabelsView(
+    labels: (leading: String, trailing: String),
+    currentHour: Int
+  ) -> some View {
+    if usage.period == .today {
+      ZStack {
+        HStack {
+          Text(labels.leading)
+            .font(.caption2)
+            .fontWeight(currentHour == 0 ? .semibold : .regular)
+            .foregroundStyle(currentHour == 0 ? Color.accentColor : .secondary)
+          Spacer()
+          Text(labels.trailing)
+            .font(.caption2)
+            .fontWeight(currentHour == 23 ? .semibold : .regular)
+            .foregroundStyle(currentHour == 23 ? Color.accentColor : .secondary)
+        }
+
+        if currentHour > 2 && currentHour < 21 {  // keep clear of the edge labels
+          GeometryReader { geo in
+            let markerX = (CGFloat(currentHour) + 0.5) / 24.0 * geo.size.width
+            Text(PanelV2Logic.formatHourLabel(hour: currentHour))
+              .font(.caption2)
+              .fontWeight(.semibold)
+              .foregroundStyle(Color.accentColor)
+              .position(x: min(max(markerX, 26), geo.size.width - 26), y: geo.size.height / 2)
+          }
+        }
+      }
+      .frame(height: 14)
+    } else {
       HStack {
         Text(labels.leading)
           .font(.caption2)

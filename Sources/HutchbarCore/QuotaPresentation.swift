@@ -303,17 +303,39 @@ public struct QuotaPresentation: Equatable, Sendable {
     }
 
     var parts: [String] = [accountName]
-    let windowLabel = chosen.label.lowercased()
-    let percentText = "\(Int(chosen.remainingPercent.rounded())) %"
-    parts.append("\(windowLabel) \(percentText)")
+    let remainingInt = Int(chosen.remainingPercent.rounded())
 
-    if let resetFormatted = L10n.formatResetDate(
-      chosen.resetsAt,
-      now: now,
-      timeZone: timeZone,
-      language: language
-    ) {
-      parts.append(resetFormatted)
+    if remainingInt <= 0 {
+      parts.append(
+        L10n.windowUsedUp(
+          windowName: chosen.label,
+          minutes: chosen.windowMinutes,
+          language: language
+        )
+      )
+      if let resetFormatted = L10n.formatResetDate(
+        chosen.resetsAt,
+        now: now,
+        calendar: Calendar(identifier: .gregorian),
+        timeZone: timeZone,
+        isUntil: true,
+        language: language
+      ) {
+        parts.append(resetFormatted)
+      }
+    } else {
+      parts.append(
+        L10n.secondaryRemaining(
+          windowName: chosen.label,
+          percent: remainingInt,
+          language: language
+        )
+      )
+      if !chosen.isStale {
+        parts.append("↻ \(chosen.resetsInText)")
+      } else {
+        parts.append(chosen.resetsInText)
+      }
     }
 
     return parts.joined(separator: " · ")

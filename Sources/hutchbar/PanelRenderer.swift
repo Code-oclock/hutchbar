@@ -8,7 +8,10 @@ import SwiftUI
 @MainActor
 enum PanelRenderer {
   static func render(to path: String, polls: Int = 40) async -> Bool {
+    _ = Settings()  // applies the stored interface language
     let store = SessionStore()
+    TerminalJumper.pidLookup = { [weak store] session in store?.pid(for: session.sessionKey) }
+    defer { TerminalJumper.pidLookup = nil }
     let coordinator = SourceCoordinator()
     let updates = coordinator.updates
     let collector = Task { @MainActor in

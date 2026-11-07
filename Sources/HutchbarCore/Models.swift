@@ -92,11 +92,21 @@ public struct AccountQuota: Equatable, Sendable, Identifiable {
   }
 }
 
+/// Live process and activity status reported in Claude Code session registry.
+public enum ClaudeLiveStatus: String, CaseIterable, Sendable, Codable, Equatable {
+  case busy
+  case idle
+  case unknown
+  case finished
+}
+
 /// One change emitted by the source layer and consumed by SessionStore.
 public enum SourceUpdate: Sendable, Equatable {
   case session(SessionSnapshot)
   case quota(AccountQuota)
   case hookEvent(HookEvent)
+  case liveStatus(
+    sessionId: String, pid: Int, status: ClaudeLiveStatus, at: Date, cwd: String? = nil)
   /// A source became available or unavailable (for the panel footer).
   case sourceStatus(SourceKind, available: Bool)
 }
@@ -107,4 +117,5 @@ public enum SourceKind: String, CaseIterable, Sendable, Codable {
   case claudeHooks
   case codexSessions
   case ccrQuotas
+  case claudeLive
 }

@@ -16,6 +16,9 @@ public enum JumpResult: Sendable, Equatable {
 enum TerminalJumper {
   private static let locationCache = AgentLocationCache()
 
+  /// Optional hook to look up live process ID for a session.
+  public static var pidLookup: ((SessionSnapshot) -> Int?)?
+
   private static let terminalBundleId = "com.apple.Terminal"
   private static let itermBundleId = "com.googlecode.iterm2"
 
@@ -56,11 +59,12 @@ enum TerminalJumper {
     """
 
   /// Returns the display name of the host application running this session (e.g. "Warp", "Terminal").
-  public static func hostName(for session: SessionSnapshot) -> String? {
+  public static func hostName(for session: SessionSnapshot, pid: Int? = nil) -> String? {
     if let cached = locationCache.location(for: session.id) {
       return cached.hostName
     }
-    guard let location = AgentLocator.locate(session: session) else {
+    let effectivePid = pid ?? pidLookup?(session)
+    guard let location = AgentLocator.locate(session: session, pid: effectivePid) else {
       return nil
     }
     locationCache.setLocation(location, for: session.id)
@@ -69,15 +73,18 @@ enum TerminalJumper {
 
   /// Locates the session's host process and switches focus or selects the matching tab.
   @discardableResult
-  public static func jump(to session: SessionSnapshot) -> JumpResult {
+  public static func jump(to session: SessionSnapshot, pid: Int? = nil) -> JumpResult {
     let location: AgentLocation
     if let cached = locationCache.location(for: session.id) {
       location = cached
-    } else if let found = AgentLocator.locate(session: session) {
-      locationCache.setLocation(found, for: session.id)
-      location = found
     } else {
-      return .notFound
+      let effectivePid = pid ?? pidLookup?(session)
+      if let found = AgentLocator.locate(session: session, pid: effectivePid) {
+        locationCache.setLocation(found, for: session.id)
+        location = found
+      } else {
+        return .notFound
+      }
     }
 
     let bundleId = location.hostBundleId

@@ -91,9 +91,10 @@ public struct DarwinProcessTable: ProcessTable, Sendable {
     var count = proc_listallpids(nil, 0)
     if count <= 0 { count = 1024 }
     var pids = [pid_t](repeating: 0, count: Int(count) + 256)
-    let bytesRead = proc_listallpids(&pids, Int32(pids.count * MemoryLayout<pid_t>.stride))
-    guard bytesRead > 0 else { return [] }
-    let actualCount = Int(bytesRead) / MemoryLayout<pid_t>.stride
+    // proc_listallpids returns the number of pids written (not bytes).
+    let written = proc_listallpids(&pids, Int32(pids.count * MemoryLayout<pid_t>.stride))
+    guard written > 0 else { return [] }
+    let actualCount = min(Int(written), pids.count)
 
     var processes: [ProcessInfoLite] = []
     processes.reserveCapacity(actualCount)
@@ -217,41 +218,52 @@ public struct AgentLocator: Sendable {
 
   public static func locate(
     session: SessionSnapshot,
+    pid knownPid: Int? = nil,
     table: ProcessTable = DarwinProcessTable(),
     resolveApp: (pid_t) -> HostApp? = defaultResolveApp
   ) -> AgentLocation? {
-    guard let sessionCwd = session.cwd, !sessionCwd.isEmpty else {
-      return nil
-    }
-
-    let targetPath = canonicalizePath(sessionCwd)
     let processes = table.allProcesses()
-
-    let matching = processes.filter { proc in
-      guard isAgentProcess(executableName: proc.executableName, agent: session.agent) else {
-        return false
-      }
-      guard let procCwd = proc.cwd, !procCwd.isEmpty else {
-        return false
-      }
-      return canonicalizePath(procCwd) == targetPath
+    var processMap: [pid_t: ProcessInfoLite] = [:]
+    processMap.reserveCapacity(processes.count)
+    for proc in processes {
+      processMap[proc.pid] = proc
     }
 
-    guard
-      let chosen = matching.max(by: { lhs, rhs in
+    var chosen: ProcessInfoLite?
+
+    if session.agent == .claudeCode, let knownPid {
+      let targetPid = pid_t(knownPid)
+      if let proc = processMap[targetPid] {
+        chosen = proc
+      }
+    }
+
+    if chosen == nil {
+      guard let sessionCwd = session.cwd, !sessionCwd.isEmpty else {
+        return nil
+      }
+
+      let targetPath = canonicalizePath(sessionCwd)
+      let matching = processes.filter { proc in
+        guard isAgentProcess(executableName: proc.executableName, agent: session.agent) else {
+          return false
+        }
+        guard let procCwd = proc.cwd, !procCwd.isEmpty else {
+          return false
+        }
+        return canonicalizePath(procCwd) == targetPath
+      }
+
+      chosen = matching.max(by: { lhs, rhs in
         if lhs.startTime != rhs.startTime {
           return lhs.startTime < rhs.startTime
         }
         return lhs.pid < rhs.pid
       })
-    else {
-      return nil
     }
 
-    var processMap: [pid_t: ProcessInfoLite] = [:]
-    processMap.reserveCapacity(processes.count)
-    for proc in processes {
-      processMap[proc.pid] = proc
+    guard let chosen else {
+      return nil
     }
 
     var currentPid = chosen.ppid
@@ -279,12 +291,31 @@ public struct AgentLocator: Sendable {
     )
   }
 
-  public func locate(
+  public static func locate(
     session: SessionSnapshot,
+    knownPid: Int?,
     table: ProcessTable = DarwinProcessTable(),
     resolveApp: (pid_t) -> HostApp? = defaultResolveApp
   ) -> AgentLocation? {
-    Self.locate(session: session, table: table, resolveApp: resolveApp)
+    locate(session: session, pid: knownPid, table: table, resolveApp: resolveApp)
+  }
+
+  public func locate(
+    session: SessionSnapshot,
+    pid: Int? = nil,
+    table: ProcessTable = DarwinProcessTable(),
+    resolveApp: (pid_t) -> HostApp? = defaultResolveApp
+  ) -> AgentLocation? {
+    Self.locate(session: session, pid: pid, table: table, resolveApp: resolveApp)
+  }
+
+  public func locate(
+    session: SessionSnapshot,
+    knownPid: Int?,
+    table: ProcessTable = DarwinProcessTable(),
+    resolveApp: (pid_t) -> HostApp? = defaultResolveApp
+  ) -> AgentLocation? {
+    Self.locate(session: session, pid: knownPid, table: table, resolveApp: resolveApp)
   }
 }
 

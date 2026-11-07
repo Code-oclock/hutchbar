@@ -61,6 +61,7 @@ public struct LocalDirectoryLister: DirectoryLister {
 public actor SourceCoordinator {
   public struct Configuration: Sendable {
     public var claudeProjectsRoot: String
+    public var claudeSessionsRoot: String
     public var codexSessionsRoot: String
     public var eventsPath: String
     public var ccrDatabasePath: String
@@ -71,6 +72,7 @@ public actor SourceCoordinator {
 
     public init(
       claudeProjectsRoot: String = Configuration.defaultClaudeProjectsRoot,
+      claudeSessionsRoot: String = Configuration.defaultClaudeSessionsRoot,
       codexSessionsRoot: String = Configuration.defaultCodexSessionsRoot,
       eventsPath: String = Configuration.defaultEventsPath,
       ccrDatabasePath: String = CcrQuotaReader.defaultDatabasePath,
@@ -80,6 +82,7 @@ public actor SourceCoordinator {
       maxTrackedFiles: Int = 200
     ) {
       self.claudeProjectsRoot = claudeProjectsRoot
+      self.claudeSessionsRoot = claudeSessionsRoot
       self.codexSessionsRoot = codexSessionsRoot
       self.eventsPath = eventsPath
       self.ccrDatabasePath = ccrDatabasePath
@@ -92,6 +95,11 @@ public actor SourceCoordinator {
     public static var defaultClaudeProjectsRoot: String {
       FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".claude/projects").path
+    }
+
+    public static var defaultClaudeSessionsRoot: String {
+      FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(".claude/sessions").path
     }
 
     public static var defaultCodexSessionsRoot: String {
@@ -118,9 +126,10 @@ public actor SourceCoordinator {
   }
 
   public let configuration: Configuration
-  private let fileSystem: any TailFileSystem
+  let fileSystem: any TailFileSystem
   let directoryLister: any DirectoryLister
   let clock: any TailClock
+  let processTable: any ProcessTable
   private let claudeParser = ClaudeTranscriptParser()
   private let ccrReader: CcrQuotaReader
 
@@ -128,6 +137,7 @@ public actor SourceCoordinator {
   private let continuation: AsyncStream<SourceUpdate>.Continuation
 
   private var trackedSessions: [String: TrackedSession] = [:]
+  var trackedLiveSessions: [String: Int] = [:]
   private var eventsReader: JSONLTailReader?
   private var lastCcrPollTime: Date = .distantPast
   private var lastEmittedQuotas: [String: AccountQuota] = [:]
@@ -139,12 +149,14 @@ public actor SourceCoordinator {
     configuration: Configuration = Configuration(),
     fileSystem: any TailFileSystem = LocalTailFileSystem(),
     directoryLister: any DirectoryLister = LocalDirectoryLister(),
-    clock: any TailClock = SystemTailClock()
+    clock: any TailClock = SystemTailClock(),
+    processTable: any ProcessTable = DarwinProcessTable()
   ) {
     self.configuration = configuration
     self.fileSystem = fileSystem
     self.directoryLister = directoryLister
     self.clock = clock
+    self.processTable = processTable
     self.ccrReader = CcrQuotaReader(databasePath: configuration.ccrDatabasePath)
 
     let (stream, continuation) = AsyncStream.makeStream(
@@ -188,6 +200,7 @@ public actor SourceCoordinator {
       tracked.reader.stop()
     }
     trackedSessions.removeAll()
+    trackedLiveSessions.removeAll()
 
     eventsReader?.stop()
     eventsReader = nil
@@ -201,6 +214,7 @@ public actor SourceCoordinator {
     pollSessions(now: now)
     pollEvents()
     pollCcrQuotas(now: now)
+    pollClaudeLive(now: now)
   }
 
   private func pollSessions(now: Date) {
@@ -360,7 +374,7 @@ public actor SourceCoordinator {
     }
   }
 
-  private func yieldUpdate(_ update: SourceUpdate) {
+  func yieldUpdate(_ update: SourceUpdate) {
     guard !isStopped else { return }
     continuation.yield(update)
   }

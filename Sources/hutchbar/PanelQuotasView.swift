@@ -128,16 +128,17 @@ private struct QuotaWindowRowView: View {
           .font(.caption)
           .fontWeight(.medium)
 
-        Text("↻ \(window.resetsInText)")
+        Text(window.isStale ? window.resetsInText : "↻ \(window.resetsInText)")
           .font(.caption2)
           .foregroundStyle(.secondary)
 
         Spacer()
 
-        Text(window.remainingText)
-          .font(.caption)
-          .fontWeight(.bold)
-          .foregroundStyle(window.isStale ? .secondary : .primary)
+        if !window.isStale {
+          Text(window.remainingText)
+            .font(.caption)
+            .fontWeight(.bold)
+        }
       }
 
       GeometryReader { geo in
@@ -152,28 +153,31 @@ private struct QuotaWindowRowView: View {
           Capsule()
             .fill(Color.secondary.opacity(0.18))
 
-          Capsule()
-            .fill(barColor)
-            .frame(width: max(0, width * CGFloat(clamped)))
+          if window.isStale {
+            Capsule()
+              .fill(Color.secondary.opacity(0.35))
+          } else {
+            Capsule()
+              .fill(barColor)
+              .frame(width: max(0, width * CGFloat(clamped)))
 
-          if let pace = window.pace, !window.isStale {
-            let paceX = min(max(width * CGFloat(pace), 0), width)
-            Rectangle()
-              .fill(Color.primary.opacity(0.75))
-              .frame(width: 1.5, height: 8)
-              .offset(x: paceX)
+            if let pace = window.pace {
+              let paceX = min(max(width * CGFloat(pace), 0), width)
+              Rectangle()
+                .fill(Color.primary.opacity(0.75))
+                .frame(width: 1.5, height: 8)
+                .offset(x: paceX)
+            }
           }
         }
       }
       .frame(height: 6)
-
-      if window.isStale {
-        Text(L10n.noFreshData())
-          .font(.caption2)
-          .foregroundStyle(.secondary)
-      }
     }
     .accessibilityElement(children: .combine)
-    .accessibilityLabel("\(window.label), \(window.remainingText), reset \(window.resetsInText)")
+    .accessibilityLabel(
+      window.isStale
+        ? "\(window.label), \(window.resetsInText)"
+        : "\(window.label), \(window.remainingText), reset \(window.resetsInText)"
+    )
   }
 }

@@ -17,6 +17,8 @@ public struct UsageSummary: Equatable, Sendable, Codable {
   public let cachedShare: Double
   public let hasUnknownModels: Bool
   public let unknownModelTokens: Int
+  public let tokensByProvider: [AgentKind: TokenUsage]
+  public let unknownTokensByProvider: [AgentKind: Int]
 
   public init(
     costUSD: Double,
@@ -24,7 +26,9 @@ public struct UsageSummary: Equatable, Sendable, Codable {
     tokens: TokenUsage,
     cachedShare: Double,
     hasUnknownModels: Bool,
-    unknownModelTokens: Int = 0
+    unknownModelTokens: Int = 0,
+    tokensByProvider: [AgentKind: TokenUsage] = [:],
+    unknownTokensByProvider: [AgentKind: Int] = [:]
   ) {
     self.costUSD = costUSD
     self.costByProvider = costByProvider
@@ -32,6 +36,23 @@ public struct UsageSummary: Equatable, Sendable, Codable {
     self.cachedShare = cachedShare
     self.hasUnknownModels = hasUnknownModels
     self.unknownModelTokens = unknownModelTokens
+    self.tokensByProvider = tokensByProvider
+    self.unknownTokensByProvider = unknownTokensByProvider
+  }
+
+  /// Formatted spending description for a provider.
+  public func spendingText(
+    for provider: AgentKind,
+    locale: Locale = .current,
+    language: L10n.Language = L10n.currentLanguage()
+  ) -> String {
+    PanelV2Logic.providerSpendingText(
+      cost: costByProvider[provider],
+      totalTokens: tokensByProvider[provider]?.total ?? 0,
+      unknownTokens: unknownTokensByProvider[provider] ?? 0,
+      locale: locale,
+      language: language
+    )
   }
 }
 
@@ -164,6 +185,8 @@ public struct UsageLedger: Equatable, Sendable, Codable {
 
     var totalCost: Double = 0.0
     var costByProvider: [AgentKind: Double] = [:]
+    var tokensByProvider: [AgentKind: TokenUsage] = [:]
+    var unknownTokensByProvider: [AgentKind: Int] = [:]
     var totalTokens = TokenUsage.zero
     var unknownModelTokens = 0
     var hasUnknownModels = false
@@ -171,12 +194,14 @@ public struct UsageLedger: Equatable, Sendable, Codable {
     for (key, tokens) in byDayProviderModel {
       guard key.day >= startDate, key.day < endDate else { continue }
       totalTokens += tokens
+      tokensByProvider[key.provider, default: .zero] += tokens
 
       if let entryCost = cost(for: key.model, tokens: tokens) {
         totalCost += entryCost
         costByProvider[key.provider, default: 0.0] += entryCost
       } else {
         unknownModelTokens += tokens.total
+        unknownTokensByProvider[key.provider, default: 0] += tokens.total
         hasUnknownModels = true
       }
     }
@@ -193,7 +218,9 @@ public struct UsageLedger: Equatable, Sendable, Codable {
       tokens: totalTokens,
       cachedShare: cachedShare,
       hasUnknownModels: hasUnknownModels,
-      unknownModelTokens: unknownModelTokens
+      unknownModelTokens: unknownModelTokens,
+      tokensByProvider: tokensByProvider,
+      unknownTokensByProvider: unknownTokensByProvider
     )
   }
 

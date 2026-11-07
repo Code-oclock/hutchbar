@@ -4,26 +4,16 @@ import Foundation
 /// Pure formatting functions for the Hutchbar panel and attention pill.
 
 /// Formats waiting duration for session rows (for example, "just now", "4 min", "2h 15m", "3d").
-public func formatWaitingTime(since: Date?, now: Date = Date()) -> String {
+public func formatWaitingTime(
+  since: Date?, now: Date = Date(), language: L10n.Language? = nil
+) -> String {
   guard let since else { return "" }
   let elapsed = now.timeIntervalSince(since)
   if elapsed < 60 {
-    return "just now"
+    return (language ?? L10n.currentLanguage()) == .ru ? "только что" : "just now"
   }
-  let minutes = Int(elapsed / 60)
-  if minutes < 60 {
-    return "\(minutes) min"
-  }
-  let hours = minutes / 60
-  let remMinutes = minutes % 60
-  if hours < 24 {
-    if remMinutes == 0 {
-      return "\(hours)h"
-    }
-    return "\(hours)h \(remMinutes)m"
-  }
-  let days = hours / 24
-  return "\(days)d"
+  // Same compact countdown format as quota resets ("4 ч 59 мин", "2 д 7 ч").
+  return L10n.countdown(seconds: elapsed, language: language)
 }
 
 /// Formats compact duration for the attention pill (for example, "2m", "1h", "2d").

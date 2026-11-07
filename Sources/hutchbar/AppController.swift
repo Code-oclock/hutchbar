@@ -50,6 +50,10 @@ final class AppController {
       store?.showFinished = show
     }
 
+    TerminalJumper.pidLookup = { [weak store] session in
+      store?.pid(for: session.sessionKey)
+    }
+
     start()
   }
 
@@ -107,6 +111,8 @@ final class AppController {
 
     timer?.invalidate()
     timer = nil
+
+    TerminalJumper.pidLookup = nil
 
     attention.stop()
 

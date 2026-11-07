@@ -67,4 +67,58 @@ extension SourceCoordinator {
     }
     return paths
   }
+
+  func pollClaudeLive(now: Date) {
+    guard configuration.enabledSources.contains(.claudeLive) else { return }
+
+    let discovered = ClaudeSessionRegistry.discoverSessions(
+      in: configuration.claudeSessionsRoot,
+      directoryLister: directoryLister,
+      fileSystem: fileSystem
+    )
+
+    var currentLiveSessionIds: Set<String> = []
+
+    for session in discovered {
+      guard
+        ClaudeSessionRegistry.isProcessAlive(
+          pid: session.pid,
+          procStart: session.procStart,
+          table: processTable
+        )
+      else {
+        continue
+      }
+
+      currentLiveSessionIds.insert(session.sessionId)
+      trackedLiveSessions[session.sessionId] = session.pid
+      yieldUpdate(
+        .liveStatus(
+          sessionId: session.sessionId,
+          pid: session.pid,
+          status: session.status,
+          at: session.statusUpdatedAt,
+          cwd: session.cwd
+        )
+      )
+    }
+
+    var disappeared: [String] = []
+    for (sessionId, pid) in trackedLiveSessions {
+      if !currentLiveSessionIds.contains(sessionId) {
+        disappeared.append(sessionId)
+        yieldUpdate(
+          .liveStatus(
+            sessionId: sessionId,
+            pid: pid,
+            status: .finished,
+            at: now
+          )
+        )
+      }
+    }
+    for sessionId in disappeared {
+      trackedLiveSessions.removeValue(forKey: sessionId)
+    }
+  }
 }

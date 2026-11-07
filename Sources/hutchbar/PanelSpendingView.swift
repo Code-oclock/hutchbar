@@ -48,7 +48,7 @@ struct PanelSpendingView: View {
         Image(systemName: "asterisk")
           .font(.caption2)
           .foregroundStyle(.orange)
-        Text(PanelV2Logic.formatCurrency(amount: summary.costByProvider[.claudeCode] ?? 0.0))
+        Text(summary.spendingText(for: .claudeCode))
 
         Text("·")
           .foregroundStyle(.secondary)
@@ -56,7 +56,7 @@ struct PanelSpendingView: View {
         Image(systemName: "hexagon")
           .font(.caption2)
           .foregroundStyle(.blue)
-        Text(PanelV2Logic.formatCurrency(amount: summary.costByProvider[.codex] ?? 0.0))
+        Text(summary.spendingText(for: .codex))
       }
       .font(.caption)
       .fontWeight(.medium)

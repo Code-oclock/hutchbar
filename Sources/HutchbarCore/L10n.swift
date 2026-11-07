@@ -11,10 +11,28 @@ public enum L10n {
     case ru
   }
 
+  /// Interface language preference: system (default), Russian, or English.
+  public enum InterfaceLanguage: String, CaseIterable, Identifiable, Sendable {
+    case system
+    case ru
+    case en
+
+    public var id: String { rawValue }
+
+    public var title: String {
+      switch self {
+      case .system: return "Системный"
+      case .ru: return "Русский"
+      case .en: return "English"
+      }
+    }
+  }
+
   // MARK: - Language Resolution & Override
 
   private static let overrideLock = NSLock()
   private static nonisolated(unsafe) var _overrideLanguage: Language?
+  private static nonisolated(unsafe) var _preference: InterfaceLanguage = .system
 
   /// Test hook to override language resolution.
   public static var overrideLanguage: Language? {
@@ -27,6 +45,20 @@ public enum L10n {
       overrideLock.lock()
       defer { overrideLock.unlock() }
       _overrideLanguage = newValue
+    }
+  }
+
+  /// Configured interface language preference from settings.
+  public static var preference: InterfaceLanguage {
+    get {
+      overrideLock.lock()
+      defer { overrideLock.unlock() }
+      return _preference
+    }
+    set {
+      overrideLock.lock()
+      defer { overrideLock.unlock() }
+      _preference = newValue
     }
   }
 
@@ -46,14 +78,21 @@ public enum L10n {
     return .en
   }
 
-  /// Active language: either explicit override or detected from preferred languages.
+  /// Active language: explicit override, user preference, or detected from preferred languages.
   public static func currentLanguage(
     preferredLanguages: [String] = Locale.preferredLanguages
   ) -> Language {
     if let override = overrideLanguage {
       return override
     }
-    return detectLanguage(from: preferredLanguages)
+    switch preference {
+    case .ru:
+      return .ru
+    case .en:
+      return .en
+    case .system:
+      return detectLanguage(from: preferredLanguages)
+    }
   }
 
   /// Executes an operation with a temporary language override.
@@ -191,6 +230,33 @@ public enum L10n {
     }
   }
 
+  public static func windowUsedUp(
+    windowName: String,
+    minutes: Int,
+    language: Language? = nil
+  ) -> String {
+    let lang = language ?? currentLanguage()
+    switch lang {
+    case .ru:
+      if minutes == 10080 { return "неделя исчерпана" }
+      if minutes == 300 { return "сессия исчерпана" }
+      return "\(windowName.lowercased()) исчерпано"
+    case .en:
+      return "\(windowName.lowercased()) used up"
+    }
+  }
+
+  public static func secondaryRemaining(
+    windowName: String,
+    percent: Int,
+    language: Language? = nil
+  ) -> String {
+    switch language ?? currentLanguage() {
+    case .ru: return "\(windowName.lowercased()): осталось \(percent) %"
+    case .en: return "\(windowName.lowercased()): remaining \(percent)%"
+    }
+  }
+
   // MARK: - Countdown Formatting
 
   public static func noFreshData(language: Language? = nil) -> String {
@@ -246,6 +312,7 @@ public enum L10n {
     now: Date = Date(),
     calendar: Calendar = Calendar(identifier: .gregorian),
     timeZone: TimeZone = .current,
+    isUntil: Bool = false,
     language: Language? = nil
   ) -> String? {
     guard let date else { return nil }
@@ -258,18 +325,27 @@ public enum L10n {
     formatter.timeZone = timeZone
     formatter.locale = Locale(identifier: lang == .ru ? "ru_RU" : "en_US_POSIX")
 
+    let prefix = isUntil ? (lang == .ru ? "до " : "until ") : "↻ "
+
     if cal.isDate(date, inSameDayAs: now) {
       formatter.dateFormat = "HH:mm"
-      return "↻ \(formatter.string(from: date))"
+      return "\(prefix)\(formatter.string(from: date))"
     }
 
     formatter.dateFormat = "EEE HH:mm"
     let formatted = formatter.string(from: date)
     let displayString = lang == .ru ? formatted.lowercased() : formatted
-    return "↻ \(displayString)"
+    return "\(prefix)\(displayString)"
   }
 
   // MARK: - Spending & Prices
+
+  public static func noPrice(language: Language? = nil) -> String {
+    switch language ?? currentLanguage() {
+    case .ru: return "нет цены"
+    case .en: return "no price"
+    }
+  }
 
   public static func atApiPrices(language: Language? = nil) -> String {
     switch language ?? currentLanguage() {
