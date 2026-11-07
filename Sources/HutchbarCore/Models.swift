@@ -63,3 +63,20 @@ public struct AccountQuota: Equatable, Sendable, Identifiable {
     self.observedAt = observedAt
   }
 }
+
+/// One change emitted by the source layer and consumed by SessionStore.
+public enum SourceUpdate: Sendable, Equatable {
+  case session(SessionSnapshot)
+  case quota(AccountQuota)
+  case hookEvent(HookEvent)
+  /// A source became available or unavailable (for the panel footer).
+  case sourceStatus(SourceKind, available: Bool)
+}
+
+/// Data sources hutchbar can read.
+public enum SourceKind: String, CaseIterable, Sendable, Codable {
+  case claudeTranscripts
+  case claudeHooks
+  case codexSessions
+  case ccrQuotas
+}
