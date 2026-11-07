@@ -1,0 +1,243 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+import Foundation
+import HutchbarCore
+import Observation
+import ServiceManagement
+import SwiftUI
+
+/// Predefined attention pill waiting duration thresholds.
+public enum PillThreshold: Int, CaseIterable, Identifiable, Sendable {
+  case thirty = 30
+  case sixty = 60
+  case twoMinutes = 120
+  case fiveMinutes = 300
+  case off = 0
+
+  public var id: Int { rawValue }
+
+  public var seconds: TimeInterval? {
+    switch self {
+    case .thirty: return 30
+    case .sixty: return 60
+    case .twoMinutes: return 120
+    case .fiveMinutes: return 300
+    case .off: return nil
+    }
+  }
+
+  public var title: String {
+    switch self {
+    case .thirty: return "30 seconds"
+    case .sixty: return "60 seconds (default)"
+    case .twoMinutes: return "2 minutes"
+    case .fiveMinutes: return "5 minutes"
+    case .off: return "Off"
+    }
+  }
+}
+
+extension SourceKind {
+  public var displayName: String {
+    switch self {
+    case .claudeTranscripts:
+      return "Claude Code transcripts"
+    case .claudeHooks:
+      return "Claude Code hooks"
+    case .codexSessions:
+      return "Codex sessions"
+    case .ccrQuotas:
+      return "Claude Code quotas (ccr)"
+    }
+  }
+}
+
+/// Observable application settings backed by UserDefaults and SMAppService.
+@MainActor
+@Observable
+public final class Settings {
+  private enum Keys {
+    static let pillThreshold = "hutchbar.pillThreshold"
+    static let showFinished = "hutchbar.showFinished"
+    static let notifications = "hutchbar.notifications"
+    static let enabledSources = "hutchbar.enabledSources"
+  }
+
+  private let userDefaults: UserDefaults
+
+  public var onShowFinishedChange: ((Bool) -> Void)?
+  public var onEnabledSourcesChange: ((Set<SourceKind>) -> Void)?
+
+  public var pillThreshold: PillThreshold {
+    didSet {
+      userDefaults.set(pillThreshold.rawValue, forKey: Keys.pillThreshold)
+    }
+  }
+
+  public var pillThresholdSeconds: TimeInterval? {
+    pillThreshold.seconds
+  }
+
+  public var showFinished: Bool {
+    didSet {
+      userDefaults.set(showFinished, forKey: Keys.showFinished)
+      onShowFinishedChange?(showFinished)
+    }
+  }
+
+  public var notifications: Bool {
+    didSet {
+      userDefaults.set(notifications, forKey: Keys.notifications)
+    }
+  }
+
+  public var enabledSources: Set<SourceKind> {
+    didSet {
+      let rawValues = enabledSources.map(\.rawValue)
+      userDefaults.set(rawValues, forKey: Keys.enabledSources)
+      onEnabledSourcesChange?(enabledSources)
+    }
+  }
+
+  public var launchAtLoginError: String?
+
+  public var launchAtLogin: Bool {
+    get {
+      SMAppService.mainApp.status == .enabled
+    }
+    set {
+      launchAtLoginError = nil
+      do {
+        if newValue {
+          try SMAppService.mainApp.register()
+        } else {
+          try SMAppService.mainApp.unregister()
+        }
+      } catch {
+        launchAtLoginError = error.localizedDescription
+      }
+    }
+  }
+
+  public init(userDefaults: UserDefaults = .standard) {
+    self.userDefaults = userDefaults
+
+    if let storedThreshold = userDefaults.object(forKey: Keys.pillThreshold) as? Int,
+      let threshold = PillThreshold(rawValue: storedThreshold)
+    {
+      self.pillThreshold = threshold
+    } else {
+      self.pillThreshold = .sixty
+    }
+
+    self.showFinished = userDefaults.bool(forKey: Keys.showFinished)
+    self.notifications = userDefaults.bool(forKey: Keys.notifications)
+
+    if let rawSources = userDefaults.stringArray(forKey: Keys.enabledSources) {
+      let decoded = rawSources.compactMap { SourceKind(rawValue: $0) }
+      self.enabledSources = Set(decoded)
+    } else {
+      self.enabledSources = Set(SourceKind.allCases)
+    }
+  }
+
+  public func isSourceEnabled(_ source: SourceKind) -> Bool {
+    enabledSources.contains(source)
+  }
+
+  public func setSource(_ source: SourceKind, enabled: Bool) {
+    if enabled {
+      enabledSources.insert(source)
+    } else {
+      enabledSources.remove(source)
+    }
+  }
+}
+
+/// SwiftUI Settings form displayed inside the settings window.
+struct SettingsView: View {
+  @Bindable var settings: Settings
+
+  var body: some View {
+    Form {
+      Section("Attention Pill") {
+        Picker("Waiting threshold", selection: $settings.pillThreshold) {
+          ForEach(PillThreshold.allCases) { threshold in
+            Text(threshold.title).tag(threshold)
+          }
+        }
+        Toggle("System notifications", isOn: $settings.notifications)
+      }
+
+      Section("Sessions") {
+        Toggle("Show finished sessions", isOn: $settings.showFinished)
+      }
+
+      Section("Startup") {
+        Toggle(
+          "Launch at login",
+          isOn: Binding(
+            get: { settings.launchAtLogin },
+            set: { settings.launchAtLogin = $0 }
+          )
+        )
+        if let error = settings.launchAtLoginError {
+          Text(error)
+            .font(.caption)
+            .foregroundStyle(.red)
+        }
+      }
+
+      Section("Sources") {
+        ForEach(SourceKind.allCases, id: \.self) { source in
+          Toggle(
+            source.displayName,
+            isOn: Binding(
+              get: { settings.isSourceEnabled(source) },
+              set: { settings.setSource(source, enabled: $0) }
+            )
+          )
+        }
+      }
+    }
+    .formStyle(.grouped)
+    .frame(width: 440)
+    .padding()
+  }
+}
+
+/// Controller managing a single reused settings window.
+@MainActor
+final class SettingsWindowController: NSObject, NSWindowDelegate {
+  static let shared = SettingsWindowController()
+
+  private var window: NSWindow?
+
+  func show(settings: Settings) {
+    if let window {
+      window.makeKeyAndOrderFront(nil)
+      NSApp.activate(ignoringOtherApps: true)
+      return
+    }
+
+    let hostingController = NSHostingController(rootView: SettingsView(settings: settings))
+    let newWindow = NSWindow(
+      contentRect: NSRect(x: 0, y: 0, width: 440, height: 420),
+      styleMask: [.titled, .closable, .miniaturizable],
+      backing: .buffered,
+      defer: false
+    )
+    newWindow.title = "Settings"
+    newWindow.contentViewController = hostingController
+    newWindow.center()
+    newWindow.isReleasedWhenClosed = false
+    newWindow.delegate = self
+    self.window = newWindow
+
+    newWindow.makeKeyAndOrderFront(nil)
+    NSApp.activate(ignoringOtherApps: true)
+  }
+
+  func close() {
+    window?.close()
+  }
+}

@@ -7,31 +7,25 @@ import MachO
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-  private var statusItem: NSStatusItem?
+  private var appController: AppController?
+  private var menuBarController: MenuBarController?
 
   func applicationDidFinishLaunching(_ notification: Notification) {
-    let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-    item.button?.image = NSImage(systemSymbolName: "terminal", accessibilityDescription: "Hutchbar")
-    let menu = NSMenu()
-    let about = menu.addItem(
-      withTitle: "About Hutchbar", action: #selector(showAbout), keyEquivalent: "")
-    about.target = self
-    menu.addItem(.separator())
-    menu.addItem(
-      withTitle: "Quit Hutchbar", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"
+    let settings = Settings()
+    let controller = AppController(settings: settings)
+    let menuBar = MenuBarController(
+      store: controller.store,
+      settings: settings
     )
-    item.menu = menu
-    statusItem = item
-  }
-
-  @objc private func showAbout() {
-    NSApplication.shared.orderFrontStandardAboutPanel(nil)
-    NSApplication.shared.activate(ignoringOtherApps: true)
+    self.appController = controller
+    self.menuBarController = menuBar
   }
 
   func applicationWillTerminate(_ notification: Notification) {
-    if let statusItem { NSStatusBar.system.removeStatusItem(statusItem) }
-    statusItem = nil
+    menuBarController?.stop()
+    menuBarController = nil
+    appController?.stop()
+    appController = nil
   }
 }
 
@@ -95,7 +89,7 @@ struct HutchbarApp {
     _ = HookEventWriter.write(event: event, to: HookEventWriter.defaultEventsPath)
   }
 
-  private static func currentExecutablePath() -> String {
+  static func currentExecutablePath() -> String {
     var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
     var size = UInt32(buffer.count)
     if _NSGetExecutablePath(&buffer, &size) == 0 {
