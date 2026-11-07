@@ -241,3 +241,35 @@ private func strings(_ batch: TailBatch) -> [String] {
   #expect(throws: TailError.unavailable) { try missingReader.poll() }
   reader.stop()
 }
+
+@Test func startFromTailLargeFileDiscardsFirstPartialLineAndReadsLastLines() throws {
+  let fs = FakeFileSystem()
+  fs.append("first line\nsecond line\nthird line\n")
+  let reader = try JSONLTailReader(
+    path: "unused",
+    fileSystem: fs,
+    startFromTail: 16
+  )
+  let batch = try reader.poll()
+  #expect(strings(batch) == ["third line"])
+  #expect(batch.skippedLongLines == 0)
+  #expect(fs.offsets == [18])
+
+  fs.append("fourth line\n")
+  let nextBatch = try reader.poll()
+  #expect(strings(nextBatch) == ["fourth line"])
+}
+
+@Test func startFromTailSmallerThanThresholdReadsEntireFile() throws {
+  let fs = FakeFileSystem()
+  fs.append("first line\nsecond line\nthird line\n")
+  let reader = try JSONLTailReader(
+    path: "unused",
+    fileSystem: fs,
+    startFromTail: 100
+  )
+  let batch = try reader.poll()
+  #expect(strings(batch) == ["first line", "second line", "third line"])
+  #expect(batch.skippedLongLines == 0)
+  #expect(fs.offsets == [0])
+}

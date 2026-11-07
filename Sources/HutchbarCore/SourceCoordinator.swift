@@ -25,20 +25,32 @@ public struct LocalDirectoryLister: DirectoryLister {
 
   public func contentsOfDirectory(atPath path: String) throws -> [FileMetadata] {
     let resolved = (path as NSString).expandingTildeInPath
+    let url = URL(fileURLWithPath: resolved, isDirectory: true)
     let fileManager = FileManager.default
-    let names = try fileManager.contentsOfDirectory(atPath: resolved)
+    let resourceKeys: [URLResourceKey] = [
+      .contentModificationDateKey,
+      .isDirectoryKey,
+      .isSymbolicLinkKey,
+    ]
+    let urls = try fileManager.contentsOfDirectory(
+      at: url,
+      includingPropertiesForKeys: resourceKeys,
+      options: [.skipsHiddenFiles]
+    )
     var results: [FileMetadata] = []
-    results.reserveCapacity(names.count)
-    for name in names {
-      let fullPath = (resolved as NSString).appendingPathComponent(name)
-      var isDir: ObjCBool = false
-      guard fileManager.fileExists(atPath: fullPath, isDirectory: &isDir) else {
+    results.reserveCapacity(urls.count)
+    let keySet = Set(resourceKeys)
+    for entryURL in urls {
+      guard let values = try? entryURL.resourceValues(forKeys: keySet) else {
         continue
       }
-      let attrs = try? fileManager.attributesOfItem(atPath: fullPath)
-      let mtime = (attrs?[.modificationDate] as? Date) ?? Date.distantPast
+      if values.isSymbolicLink == true {
+        continue
+      }
+      let isDir = values.isDirectory ?? false
+      let mtime = values.contentModificationDate ?? Date.distantPast
       results.append(
-        FileMetadata(path: fullPath, modificationDate: mtime, isDirectory: isDir.boolValue)
+        FileMetadata(path: entryURL.path, modificationDate: mtime, isDirectory: isDir)
       )
     }
     return results
@@ -63,7 +75,7 @@ public actor SourceCoordinator {
       eventsPath: String = Configuration.defaultEventsPath,
       ccrDatabasePath: String = CcrQuotaReader.defaultDatabasePath,
       enabledSources: Set<SourceKind> = Set(SourceKind.allCases),
-      pollInterval: TimeInterval = 1.0,
+      pollInterval: TimeInterval = 2.0,
       freshnessWindow: TimeInterval = 24 * 3600,
       maxTrackedFiles: Int = 200
     ) {
@@ -236,7 +248,9 @@ public actor SourceCoordinator {
         let reader = try JSONLTailReader(
           path: path,
           fileSystem: fileSystem,
-          clock: clock
+          clock: clock,
+          maximumReadBytes: 1_048_576,
+          startFromTail: 262_144
         )
         let newTracked = TrackedSession(reader: reader, agent: item.agent)
         trackedSessions[path] = newTracked
@@ -308,7 +322,9 @@ public actor SourceCoordinator {
         let newReader = try JSONLTailReader(
           path: path,
           fileSystem: fileSystem,
-          clock: clock
+          clock: clock,
+          maximumReadBytes: 1_048_576,
+          startFromTail: 262_144
         )
         eventsReader = newReader
         reader = newReader

@@ -23,61 +23,72 @@ struct PanelView: View {
     nonmutating set { copiedHooksState.wrappedValue = newValue }
   }
 
+  /// False only for offscreen rendering (ImageRenderer does not draw ScrollView content).
+  private let scrollable: Bool
+
   init(
     store: SessionStore,
     onJump: @escaping @MainActor (SessionSnapshot) -> Void,
-    onClose: (@MainActor () -> Void)? = nil
+    onClose: (@MainActor () -> Void)? = nil,
+    scrollable: Bool = true
   ) {
+    self.scrollable = scrollable
     self.store = store
     self.onJump = onJump
     self.onClose = onClose
   }
 
-  var body: some View {
-    VStack(spacing: 0) {
-      ScrollView {
-        VStack(alignment: .leading, spacing: 12) {
-          if !store.waiting.isEmpty {
-            SectionHeaderView(title: "Waiting for you", count: store.waiting.count)
-            ForEach(store.waiting) { session in
-              SessionRowView(
-                session: session,
-                isSelected: selectedSessionId == session.id,
-                onSelect: { selectedSessionId = session.id },
-                onJump: { onJump(session) }
-              )
-            }
-          }
+  private var sections: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      if !store.waiting.isEmpty {
+        SectionHeaderView(title: "Waiting for you", count: store.waiting.count)
+        ForEach(store.waiting) { session in
+          SessionRowView(
+            session: session,
+            isSelected: selectedSessionId == session.id,
+            onSelect: { selectedSessionId = session.id },
+            onJump: { onJump(session) }
+          )
+        }
+      }
 
-          if !store.working.isEmpty {
-            SectionHeaderView(title: "Working", count: store.working.count)
-            ForEach(store.working) { session in
-              SessionRowView(
-                session: session,
-                isSelected: selectedSessionId == session.id,
-                onSelect: { selectedSessionId = session.id },
-                onJump: { onJump(session) }
-              )
-            }
-          }
+      if !store.working.isEmpty {
+        SectionHeaderView(title: "Working", count: store.working.count)
+        ForEach(store.working) { session in
+          SessionRowView(
+            session: session,
+            isSelected: selectedSessionId == session.id,
+            onSelect: { selectedSessionId = session.id },
+            onJump: { onJump(session) }
+          )
+        }
+      }
 
-          if store.waiting.isEmpty && store.working.isEmpty {
-            EmptySessionsView()
-          }
+      if store.waiting.isEmpty && store.working.isEmpty {
+        EmptySessionsView()
+      }
 
-          if !store.quotas.isEmpty {
-            SectionHeaderView(title: "Quotas", count: nil)
-            let sortedQuotas = store.quotas.values.sorted { $0.id < $1.id }
-            ForEach(sortedQuotas) { quota in
-              ForEach(quota.windows.indices, id: \.self) { index in
-                QuotaRowView(quota: quota, window: quota.windows[index])
-              }
-            }
+      if !store.quotas.isEmpty {
+        SectionHeaderView(title: "Quotas", count: nil)
+        let sortedQuotas = store.quotas.values.sorted { $0.id < $1.id }
+        ForEach(sortedQuotas) { quota in
+          ForEach(quota.windows.indices, id: \.self) { index in
+            QuotaRowView(quota: quota, window: quota.windows[index])
           }
         }
-        .padding(10)
       }
-      .frame(maxHeight: 480)
+    }
+    .padding(10)
+  }
+
+  var body: some View {
+    VStack(spacing: 0) {
+      if scrollable {
+        ScrollView { sections }
+          .frame(maxHeight: 480)
+      } else {
+        sections
+      }
 
       let hooksInstalled = store.sourceStatus[.claudeHooks] == true
       if !hooksInstalled {

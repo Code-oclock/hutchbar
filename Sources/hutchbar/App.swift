@@ -46,6 +46,15 @@ struct HutchbarApp {
       print(generateHooksConfiguration(binaryPath: executable))
       return
     }
+    if let index = arguments.firstIndex(of: "--render-panel"),
+      arguments.index(after: index) < arguments.endIndex
+    {
+      let path = arguments[arguments.index(after: index)]
+      Task { @MainActor in
+        exit(await PanelRenderer.render(to: path) ? 0 : 1)
+      }
+      RunLoop.main.run()
+    }
     if arguments.contains("--selftest") {
       // Touch core models and the real filesystem adapter without starting AppKit.
       do {
