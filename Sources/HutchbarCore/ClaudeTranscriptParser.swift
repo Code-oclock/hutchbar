@@ -213,7 +213,7 @@ extension ClaudeTranscriptParser {
     case "custom-title":
       return applyCustomTitleRecord(snapshot: snapshot, record: record, date: recordDate, now: now)
     default:
-      return applyOtherRecord(snapshot: snapshot, date: recordDate)
+      return applyOtherRecord(snapshot: snapshot, record: record, date: recordDate)
     }
   }
 
@@ -231,7 +231,9 @@ extension ClaudeTranscriptParser {
   ) -> SessionSnapshot? {
     let isTool = record.hasToolUseResult || (record.message?.content?.hasToolResult == true)
     let isPrompt = (record.message?.content?.hasText == true) && !isTool
-    guard isPrompt || isTool else { return applyOtherRecord(snapshot: snapshot, date: date) }
+    guard isPrompt || isTool else {
+      return applyOtherRecord(snapshot: snapshot, record: record, date: date)
+    }
 
     let effectiveDate = date ?? .distantPast
     var current: SessionSnapshot
@@ -246,7 +248,8 @@ extension ClaudeTranscriptParser {
         projectName: record.cwd.map(Self.extractProjectName(from:)) ?? "",
         title: nil,
         lastActivity: effectiveDate,
-        waitingSince: nil
+        waitingSince: nil,
+        cwd: record.cwd
       )
     }
     current.state = .running
@@ -255,6 +258,7 @@ extension ClaudeTranscriptParser {
     if let cwd = record.cwd {
       let projectName = Self.extractProjectName(from: cwd)
       if !projectName.isEmpty { current.projectName = projectName }
+      current.cwd = cwd
     }
     return current
   }
@@ -281,7 +285,8 @@ extension ClaudeTranscriptParser {
         projectName: record.cwd.map(Self.extractProjectName(from:)) ?? "",
         title: nil,
         lastActivity: effectiveDate,
-        waitingSince: initialWaiting
+        waitingSince: initialWaiting,
+        cwd: record.cwd
       )
     }
     if stopReason == "tool_use" {
@@ -294,6 +299,7 @@ extension ClaudeTranscriptParser {
     if let cwd = record.cwd {
       let projectName = Self.extractProjectName(from: cwd)
       if !projectName.isEmpty { current.projectName = projectName }
+      current.cwd = cwd
     }
     if let date { current.lastActivity = max(current.lastActivity, date) }
     return current
@@ -306,7 +312,7 @@ extension ClaudeTranscriptParser {
     now: Date
   ) -> SessionSnapshot? {
     guard record.subtype == "turn_duration" else {
-      return applyOtherRecord(snapshot: snapshot, date: date)
+      return applyOtherRecord(snapshot: snapshot, record: record, date: date)
     }
     let effectiveDate = date ?? .distantPast
     var current: SessionSnapshot
@@ -321,12 +327,18 @@ extension ClaudeTranscriptParser {
         projectName: record.cwd.map(Self.extractProjectName(from:)) ?? "",
         title: nil,
         lastActivity: effectiveDate,
-        waitingSince: effectiveDate
+        waitingSince: effectiveDate,
+        cwd: record.cwd
       )
     }
     if current.state != .waitingForInput {
       current.state = .waitingForInput
       current.waitingSince = effectiveDate
+    }
+    if let cwd = record.cwd {
+      let projectName = Self.extractProjectName(from: cwd)
+      if !projectName.isEmpty { current.projectName = projectName }
+      current.cwd = cwd
     }
     if let date { current.lastActivity = max(current.lastActivity, date) }
     return current
@@ -339,7 +351,7 @@ extension ClaudeTranscriptParser {
     now: Date
   ) -> SessionSnapshot? {
     guard let title = record.customTitle else {
-      return applyOtherRecord(snapshot: snapshot, date: date)
+      return applyOtherRecord(snapshot: snapshot, record: record, date: date)
     }
     let sanitized = Self.sanitizeTitle(title)
     let effectiveDate = date ?? .distantPast
@@ -355,17 +367,32 @@ extension ClaudeTranscriptParser {
         projectName: record.cwd.map(Self.extractProjectName(from:)) ?? "",
         title: sanitized,
         lastActivity: effectiveDate,
-        waitingSince: effectiveDate
+        waitingSince: effectiveDate,
+        cwd: record.cwd
       )
     }
     current.title = sanitized
+    if let cwd = record.cwd {
+      let projectName = Self.extractProjectName(from: cwd)
+      if !projectName.isEmpty { current.projectName = projectName }
+      current.cwd = cwd
+    }
     if let date { current.lastActivity = max(current.lastActivity, date) }
     return current
   }
 
-  private func applyOtherRecord(snapshot: SessionSnapshot?, date: Date?) -> SessionSnapshot? {
+  private func applyOtherRecord(
+    snapshot: SessionSnapshot?,
+    record: TranscriptRecord? = nil,
+    date: Date?
+  ) -> SessionSnapshot? {
     guard var current = snapshot else { return nil }
     if let date { current.lastActivity = max(current.lastActivity, date) }
+    if let cwd = record?.cwd {
+      let projectName = Self.extractProjectName(from: cwd)
+      if !projectName.isEmpty { current.projectName = projectName }
+      current.cwd = cwd
+    }
     return current
   }
 }

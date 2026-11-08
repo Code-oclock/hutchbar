@@ -29,38 +29,38 @@ private func makeDate(
 private let testBaseTime = makeDate(year: 2026, month: 11, day: 7, hour: 12, minute: 0)
 
 @Test func panelFormatting_waitingTime_nilAndPastBounds() {
-  #expect(formatWaitingTime(since: nil, now: testBaseTime) == "")
+  #expect(formatWaitingTime(since: nil, now: testBaseTime, language: .en) == "")
 
   // Less than 60 seconds
   let fortySecondsAgo = testBaseTime.addingTimeInterval(-40)
-  #expect(formatWaitingTime(since: fortySecondsAgo, now: testBaseTime) == "just now")
+  #expect(formatWaitingTime(since: fortySecondsAgo, now: testBaseTime, language: .en) == "just now")
 
   // Exact 0 or future date
-  #expect(formatWaitingTime(since: testBaseTime, now: testBaseTime) == "just now")
+  #expect(formatWaitingTime(since: testBaseTime, now: testBaseTime, language: .en) == "just now")
   let future = testBaseTime.addingTimeInterval(10)
-  #expect(formatWaitingTime(since: future, now: testBaseTime) == "just now")
+  #expect(formatWaitingTime(since: future, now: testBaseTime, language: .en) == "just now")
 }
 
 @Test func panelFormatting_waitingTime_minutes() {
   let oneMinuteAgo = testBaseTime.addingTimeInterval(-60)
-  #expect(formatWaitingTime(since: oneMinuteAgo, now: testBaseTime) == "1 min")
+  #expect(formatWaitingTime(since: oneMinuteAgo, now: testBaseTime, language: .en) == "1m")
 
   let fourMinutesAgo = testBaseTime.addingTimeInterval(-240)
-  #expect(formatWaitingTime(since: fourMinutesAgo, now: testBaseTime) == "4 min")
+  #expect(formatWaitingTime(since: fourMinutesAgo, now: testBaseTime, language: .en) == "4m")
 
   let fiftyNineMinutesAgo = testBaseTime.addingTimeInterval(-59 * 60)
-  #expect(formatWaitingTime(since: fiftyNineMinutesAgo, now: testBaseTime) == "59 min")
+  #expect(formatWaitingTime(since: fiftyNineMinutesAgo, now: testBaseTime, language: .en) == "59m")
 }
 
 @Test func panelFormatting_waitingTime_hoursAndDays() {
   let exactlyOneHourAgo = testBaseTime.addingTimeInterval(-3600)
-  #expect(formatWaitingTime(since: exactlyOneHourAgo, now: testBaseTime) == "1h")
+  #expect(formatWaitingTime(since: exactlyOneHourAgo, now: testBaseTime, language: .en) == "1h 0m")
 
   let oneHourThirtyAgo = testBaseTime.addingTimeInterval(-5400)
-  #expect(formatWaitingTime(since: oneHourThirtyAgo, now: testBaseTime) == "1h 30m")
+  #expect(formatWaitingTime(since: oneHourThirtyAgo, now: testBaseTime, language: .en) == "1h 30m")
 
   let twoDaysAgo = testBaseTime.addingTimeInterval(-2 * 86400)
-  #expect(formatWaitingTime(since: twoDaysAgo, now: testBaseTime) == "2d")
+  #expect(formatWaitingTime(since: twoDaysAgo, now: testBaseTime, language: .en) == "2d 0h")
 }
 
 @Test func panelFormatting_pillDuration() {

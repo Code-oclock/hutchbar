@@ -8,7 +8,10 @@ import SwiftUI
 @MainActor
 enum PanelRenderer {
   static func render(to path: String, polls: Int = 40) async -> Bool {
+    _ = Settings()  // applies the stored interface language
     let store = SessionStore()
+    TerminalJumper.pidLookup = { [weak store] session in store?.pid(for: session.sessionKey) }
+    defer { TerminalJumper.pidLookup = nil }
     let coordinator = SourceCoordinator()
     let updates = coordinator.updates
     let collector = Task { @MainActor in
@@ -17,13 +20,24 @@ enum PanelRenderer {
     for _ in 0..<polls { await coordinator.pollOnce() }
     await coordinator.stop()
     await collector.value
-    FileHandle.standardError.write(
-      Data(
-        "waiting=\(store.waiting.count) working=\(store.working.count) quotas=\(store.quotas.count)\n"
-          .utf8))
-    let content = PanelView(store: store, onJump: { _ in }, scrollable: false)
-      .frame(width: 340)
-      .background(Color(nsColor: .windowBackgroundColor))
+
+    let scanner = UsageScanner()
+    let ledger = await scanner.scanOnce()
+    await scanner.stop()
+    let usage = UsageViewModel(ledger: ledger)
+
+    let statusMsg =
+      "waiting=\(store.waiting.count) working=\(store.working.count) quotas=\(store.quotas.count)\n"
+    FileHandle.standardError.write(Data(statusMsg.utf8))
+    let content = PanelView(
+      store: store,
+      usage: usage,
+      onJump: { _ in },
+      onClose: nil,
+      scrollable: false
+    )
+    .frame(width: 560)
+    .background(Color(nsColor: .windowBackgroundColor))
     let renderer = ImageRenderer(content: content)
     renderer.scale = 2
     guard let image = renderer.nsImage,

@@ -3,14 +3,19 @@ import AppKit
 import HutchbarCore
 import SwiftUI
 
-/// Popover content: waiting queue, working sessions, quotas. See docs/specs/ui-v0.1.md.
+/// Popover panel v2: header with period switcher, full-width agents block,
+/// two-column quota cards, spending and trend cards, and hooks status footer.
 struct PanelView: View {
   let store: SessionStore
+  let usage: UsageViewModel
   let onJump: @MainActor (SessionSnapshot) -> Void
   var onClose: (@MainActor () -> Void)?
 
+  private let scrollable: Bool
+
   private var selectedSessionIdState = SwiftUI.State<String?>(initialValue: nil)
   private var copiedHooksState = SwiftUI.State<Bool>(initialValue: false)
+  private var copyTaskState = SwiftUI.State<Task<Void, Never>?>(initialValue: nil)
   @FocusState private var isFocused: Bool
 
   private var selectedSessionId: String? {
@@ -23,71 +28,34 @@ struct PanelView: View {
     nonmutating set { copiedHooksState.wrappedValue = newValue }
   }
 
-  /// False only for offscreen rendering (ImageRenderer does not draw ScrollView content).
-  private let scrollable: Bool
+  private var copyTask: Task<Void, Never>? {
+    get { copyTaskState.wrappedValue }
+    nonmutating set { copyTaskState.wrappedValue = newValue }
+  }
 
   init(
     store: SessionStore,
+    usage: UsageViewModel = UsageViewModel(),
     onJump: @escaping @MainActor (SessionSnapshot) -> Void,
     onClose: (@MainActor () -> Void)? = nil,
     scrollable: Bool = true
   ) {
-    self.scrollable = scrollable
     self.store = store
+    self.usage = usage
     self.onJump = onJump
     self.onClose = onClose
-  }
-
-  private var sections: some View {
-    VStack(alignment: .leading, spacing: 12) {
-      if !store.waiting.isEmpty {
-        SectionHeaderView(title: "Waiting for you", count: store.waiting.count)
-        ForEach(store.waiting) { session in
-          SessionRowView(
-            session: session,
-            isSelected: selectedSessionId == session.id,
-            onSelect: { selectedSessionId = session.id },
-            onJump: { onJump(session) }
-          )
-        }
-      }
-
-      if !store.working.isEmpty {
-        SectionHeaderView(title: "Working", count: store.working.count)
-        ForEach(store.working) { session in
-          SessionRowView(
-            session: session,
-            isSelected: selectedSessionId == session.id,
-            onSelect: { selectedSessionId = session.id },
-            onJump: { onJump(session) }
-          )
-        }
-      }
-
-      if store.waiting.isEmpty && store.working.isEmpty {
-        EmptySessionsView()
-      }
-
-      if !store.quotas.isEmpty {
-        SectionHeaderView(title: "Quotas", count: nil)
-        let sortedQuotas = store.quotas.values.sorted { $0.id < $1.id }
-        ForEach(sortedQuotas) { quota in
-          ForEach(quota.windows.indices, id: \.self) { index in
-            QuotaRowView(quota: quota, window: quota.windows[index])
-          }
-        }
-      }
-    }
-    .padding(10)
+    self.scrollable = scrollable
   }
 
   var body: some View {
     VStack(spacing: 0) {
       if scrollable {
-        ScrollView { sections }
-          .frame(maxHeight: 480)
+        ScrollView {
+          panelContent
+        }
+        .frame(maxHeight: 520)
       } else {
-        sections
+        panelContent
       }
 
       let hooksInstalled = store.sourceStatus[.claudeHooks] == true
@@ -101,7 +69,8 @@ struct PanelView: View {
         .padding(8)
       }
     }
-    .frame(width: 340)
+    .frame(width: 560)
+    .background(.regularMaterial)
     .focusable()
     .focused($isFocused)
     .onKeyPress(.upArrow) {
@@ -123,9 +92,36 @@ struct PanelView: View {
     .onAppear {
       isFocused = true
       if selectedSessionId == nil {
-        selectedSessionId = visibleSessions.first?.id
+        selectedSessionId = sortedSessions.first?.id
       }
     }
+    .onDisappear {
+      copyTask?.cancel()
+      copyTask = nil
+    }
+  }
+
+  private var panelContent: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      PanelHeaderView(usage: usage, onClose: closePanel)
+
+      if !sortedSessions.isEmpty {
+        PanelAgentsView(
+          sessions: sortedSessions,
+          selectedSessionId: selectedSessionId,
+          onSelect: { session in selectedSessionId = session.id },
+          onJump: onJump
+        )
+      }
+
+      PanelQuotasView(presentation: QuotaPresentation(quotas: store.quotas, now: Date()))
+
+      HStack(alignment: .top, spacing: 10) {
+        PanelSpendingView(usage: usage)
+        PanelTrendView(usage: usage)
+      }
+    }
+    .padding(12)
   }
 
   private var visibleSessions: [SessionSnapshot] {
@@ -137,8 +133,12 @@ struct PanelView: View {
     return sessions
   }
 
+  private var sortedSessions: [SessionSnapshot] {
+    PanelV2Logic.sortSessions(visibleSessions)
+  }
+
   private func selectPrevious() {
-    let sessions = visibleSessions
+    let sessions = sortedSessions
     guard !sessions.isEmpty else { return }
     guard let selectedSessionId,
       let index = sessions.firstIndex(where: { $0.id == selectedSessionId })
@@ -152,7 +152,7 @@ struct PanelView: View {
   }
 
   private func selectNext() {
-    let sessions = visibleSessions
+    let sessions = sortedSessions
     guard !sessions.isEmpty else { return }
     guard let selectedSessionId,
       let index = sessions.firstIndex(where: { $0.id == selectedSessionId })
@@ -166,7 +166,7 @@ struct PanelView: View {
   }
 
   private func jumpToSelected() {
-    let sessions = visibleSessions
+    let sessions = sortedSessions
     guard let selectedSessionId,
       let session = sessions.first(where: { $0.id == selectedSessionId })
     else {
@@ -187,284 +187,18 @@ struct PanelView: View {
   }
 
   private func copyHooksConfiguration() {
-    let executable = Bundle.main.executablePath ?? "hutchbar"
+    let executable = HutchbarApp.currentExecutablePath()
     let snippet = generateHooksConfiguration(binaryPath: executable)
     let pasteboard = NSPasteboard.general
     pasteboard.clearContents()
     pasteboard.setString(snippet, forType: .string)
-    copiedHooks = true
 
-    Task { @MainActor in
+    copyTask?.cancel()
+    copiedHooks = true
+    copyTask = Task { @MainActor in
       try? await Task.sleep(nanoseconds: 2_000_000_000)
+      guard !Task.isCancelled else { return }
       copiedHooks = false
     }
-  }
-}
-
-/// One row representing an agent session.
-private struct SessionRowView: View {
-  let session: SessionSnapshot
-  let isSelected: Bool
-  let onSelect: () -> Void
-  let onJump: () -> Void
-
-  var body: some View {
-    HStack(spacing: 8) {
-      Circle()
-        .fill(statusColor)
-        .frame(width: 8, height: 8)
-
-      VStack(alignment: .leading, spacing: 1) {
-        Text(session.projectName)
-          .font(.subheadline)
-          .fontWeight(.medium)
-          .lineLimit(1)
-
-        if let title = session.title, !title.isEmpty {
-          Text(title)
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
-        }
-      }
-
-      Spacer(minLength: 4)
-
-      Image(systemName: agentSymbol)
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .accessibilityLabel(agentAccessibilityName)
-
-      if let waitingSince = session.waitingSince {
-        Text(formatWaitingTime(since: waitingSince))
-          .font(.caption)
-          .foregroundStyle(.secondary)
-      }
-
-      Button(action: onJump) {
-        Image(systemName: "arrow.up.forward.app")
-          .font(.caption)
-          .foregroundStyle(.secondary)
-      }
-      .buttonStyle(.plain)
-      .help("Jump to terminal")
-      .accessibilityLabel("Jump to terminal for \(session.projectName)")
-    }
-    .padding(.horizontal, 8)
-    .padding(.vertical, 6)
-    .background(
-      RoundedRectangle(cornerRadius: 6)
-        .fill(isSelected ? Color.accentColor.opacity(0.12) : Color.clear)
-    )
-    .contentShape(Rectangle())
-    .onTapGesture {
-      onSelect()
-      onJump()
-    }
-    .accessibilityElement(children: .combine)
-    .accessibilityLabel(rowAccessibilityLabel)
-  }
-
-  private var statusColor: Color {
-    switch session.state {
-    case .waitingForApproval:
-      return .orange
-    case .waitingForInput:
-      return .blue
-    case .running:
-      return .green
-    case .finished:
-      return .secondary
-    }
-  }
-
-  private var agentSymbol: String {
-    switch session.agent {
-    case .claudeCode:
-      return "sparkles"
-    case .codex:
-      return "chevron.left.forwardslash.chevron.right"
-    }
-  }
-
-  private var agentAccessibilityName: String {
-    switch session.agent {
-    case .claudeCode:
-      return "Claude Code"
-    case .codex:
-      return "Codex"
-    }
-  }
-
-  private var rowAccessibilityLabel: String {
-    var parts = [
-      session.projectName,
-      agentAccessibilityName,
-      sessionStateDescription(session.state),
-    ]
-    if let title = session.title, !title.isEmpty {
-      parts.append(title)
-    }
-    if let waitingSince = session.waitingSince {
-      parts.append("waited \(formatWaitingTime(since: waitingSince))")
-    }
-    return parts.joined(separator: ", ")
-  }
-}
-
-/// One row representing an account quota window.
-private struct QuotaRowView: View {
-  let quota: AccountQuota
-  let window: QuotaWindow
-
-  var body: some View {
-    HStack(spacing: 8) {
-      Text("\(quota.accountName) · \(formatQuotaWindowDuration(window.windowMinutes))")
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .lineLimit(1)
-        .frame(minWidth: 80, alignment: .leading)
-
-      Spacer(minLength: 4)
-
-      QuotaBarView(percent: window.usedPercent)
-        .frame(width: 70, height: 6)
-
-      Text(formatPercent(window.usedPercent))
-        .font(.caption.monospacedDigit())
-        .frame(minWidth: 36, alignment: .trailing)
-
-      if let resetText = formatQuotaReset(resetsAt: window.resetsAt) {
-        Text(resetText)
-          .font(.caption2)
-          .foregroundStyle(.secondary)
-          .frame(minWidth: 50, alignment: .trailing)
-      }
-    }
-    .padding(.horizontal, 8)
-    .padding(.vertical, 4)
-    .accessibilityElement(children: .combine)
-    .accessibilityLabel(accessibilityDescription)
-  }
-
-  private var accessibilityDescription: String {
-    let windowName = formatQuotaWindowDuration(window.windowMinutes)
-    let percentText = formatPercent(window.usedPercent)
-    let reset = formatQuotaReset(resetsAt: window.resetsAt) ?? ""
-    return "\(quota.accountName) \(windowName), \(percentText) used"
-      + (reset.isEmpty ? "" : ", reset \(reset)")
-  }
-}
-
-/// Horizontal bar visualizing quota utilization.
-private struct QuotaBarView: View {
-  let percent: Double
-
-  var body: some View {
-    GeometryReader { geometry in
-      let clamped = min(max(percent, 0.0), 100.0) / 100.0
-      ZStack(alignment: .leading) {
-        Capsule()
-          .fill(Color.secondary.opacity(0.2))
-
-        Capsule()
-          .fill(barColor)
-          .frame(width: max(0, geometry.size.width * CGFloat(clamped)))
-      }
-    }
-  }
-
-  private var barColor: Color {
-    if percent >= 95.0 {
-      return .red
-    }
-    if percent >= 80.0 {
-      return .orange
-    }
-    return .accentColor
-  }
-}
-
-/// Footer displaying hooks warning and copy snippet button.
-private struct PanelFooterView: View {
-  let hooksInstalled: Bool
-  let onCopyHooks: () -> Void
-  let copied: Bool
-
-  var body: some View {
-    VStack(spacing: 6) {
-      if !hooksInstalled {
-        HStack(spacing: 8) {
-          Image(systemName: "exclamationmark.triangle")
-            .foregroundStyle(.orange)
-            .font(.caption)
-
-          Text("Hooks not installed")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-
-          Spacer()
-
-          Button(action: onCopyHooks) {
-            HStack(spacing: 4) {
-              Image(systemName: copied ? "checkmark" : "doc.on.doc")
-              Text(copied ? "Copied" : "Copy")
-            }
-            .font(.caption)
-          }
-          .buttonStyle(.bordered)
-          .controlSize(.small)
-          .accessibilityLabel("Copy hooks configuration")
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(
-          RoundedRectangle(cornerRadius: 6)
-            .fill(Color.orange.opacity(0.1))
-        )
-      }
-    }
-  }
-}
-
-/// Header for panel sections.
-private struct SectionHeaderView: View {
-  let title: String
-  let count: Int?
-
-  var body: some View {
-    HStack {
-      Text(title)
-        .font(.caption)
-        .fontWeight(.semibold)
-        .foregroundStyle(.secondary)
-
-      if let count {
-        Text("\(count)")
-          .font(.caption2)
-          .fontWeight(.bold)
-          .padding(.horizontal, 5)
-          .padding(.vertical, 1)
-          .background(Capsule().fill(Color.secondary.opacity(0.2)))
-          .foregroundStyle(.secondary)
-      }
-
-      Spacer()
-    }
-    .padding(.horizontal, 8)
-    .padding(.top, 4)
-  }
-}
-
-/// Empty state message displayed when no sessions exist.
-private struct EmptySessionsView: View {
-  var body: some View {
-    VStack(spacing: 6) {
-      Text("No agent sessions yet")
-        .font(.subheadline)
-        .foregroundStyle(.secondary)
-    }
-    .frame(maxWidth: .infinity)
-    .padding(.vertical, 24)
   }
 }

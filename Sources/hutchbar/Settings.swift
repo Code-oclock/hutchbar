@@ -47,6 +47,8 @@ extension SourceKind {
       return "Codex sessions"
     case .ccrQuotas:
       return "Claude Code quotas (ccr)"
+    case .claudeLive:
+      return "Claude Code live sessions"
     }
   }
 }
@@ -60,12 +62,29 @@ public final class Settings {
     static let showFinished = "hutchbar.showFinished"
     static let notifications = "hutchbar.notifications"
     static let enabledSources = "hutchbar.enabledSources"
+    static let usagePeriod = "hutchbar.usagePeriod"
+    static let language = "hutchbar.language"
   }
 
   private let userDefaults: UserDefaults
 
   public var onShowFinishedChange: ((Bool) -> Void)?
   public var onEnabledSourcesChange: ((Set<SourceKind>) -> Void)?
+  public var onUsagePeriodChange: ((UsagePeriod) -> Void)?
+
+  public var language: L10n.InterfaceLanguage {
+    didSet {
+      userDefaults.set(language.rawValue, forKey: Keys.language)
+      L10n.preference = language
+    }
+  }
+
+  public var usagePeriod: UsagePeriod {
+    didSet {
+      userDefaults.set(usagePeriod.rawValue, forKey: Keys.usagePeriod)
+      onUsagePeriodChange?(usagePeriod)
+    }
+  }
 
   public var pillThreshold: PillThreshold {
     didSet {
@@ -121,6 +140,18 @@ public final class Settings {
   public init(userDefaults: UserDefaults = .standard) {
     self.userDefaults = userDefaults
 
+    let resolvedLanguage: L10n.InterfaceLanguage
+    if let storedLang = userDefaults.string(forKey: Keys.language),
+      let lang = L10n.InterfaceLanguage(rawValue: storedLang)
+    {
+      resolvedLanguage = lang
+    } else {
+      resolvedLanguage = .system
+    }
+    self.language = resolvedLanguage
+    // Property setters do not run during init; apply the stored choice explicitly.
+    L10n.preference = resolvedLanguage
+
     if let storedThreshold = userDefaults.object(forKey: Keys.pillThreshold) as? Int,
       let threshold = PillThreshold(rawValue: storedThreshold)
     {
@@ -132,12 +163,22 @@ public final class Settings {
     self.showFinished = userDefaults.bool(forKey: Keys.showFinished)
     self.notifications = userDefaults.bool(forKey: Keys.notifications)
 
+    if let storedPeriod = userDefaults.string(forKey: Keys.usagePeriod),
+      let period = UsagePeriod(rawValue: storedPeriod)
+    {
+      self.usagePeriod = period
+    } else {
+      self.usagePeriod = .today
+    }
+
     if let rawSources = userDefaults.stringArray(forKey: Keys.enabledSources) {
       let decoded = rawSources.compactMap { SourceKind(rawValue: $0) }
       self.enabledSources = Set(decoded)
     } else {
       self.enabledSources = Set(SourceKind.allCases)
     }
+
+    L10n.preference = resolvedLanguage
   }
 
   public func isSourceEnabled(_ source: SourceKind) -> Bool {
@@ -159,6 +200,14 @@ struct SettingsView: View {
 
   var body: some View {
     Form {
+      Section("Language") {
+        Picker("Interface language", selection: $settings.language) {
+          ForEach(L10n.InterfaceLanguage.allCases) { lang in
+            Text(lang.title).tag(lang)
+          }
+        }
+      }
+
       Section("Attention Pill") {
         Picker("Waiting threshold", selection: $settings.pillThreshold) {
           ForEach(PillThreshold.allCases) { threshold in

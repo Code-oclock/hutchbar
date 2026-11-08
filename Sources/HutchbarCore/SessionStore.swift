@@ -39,6 +39,9 @@ public final class SessionStore {
   /// Quotas indexed by `AccountQuota.id`. Newer quotas replace older ones.
   public private(set) var quotas: [String: AccountQuota] = [:]
 
+  /// Active process identifiers mapped by session key, kept outside SessionSnapshot.
+  private var sessionPids: [SessionKey: Int] = [:]
+
   /// Availability status of data sources for UI indicators.
   public private(set) var sourceStatus: [SourceKind: Bool] = [:]
 
@@ -135,6 +138,16 @@ public final class SessionStore {
     sessions[SessionKey(agent: agent, id: id)]
   }
 
+  /// Process ID stored for the session key, if currently live.
+  public func pid(for key: SessionKey) -> Int? {
+    sessionPids[key]
+  }
+
+  /// Process ID stored for the agent and session id, if currently live.
+  public func pid(agent: AgentKind, id: String) -> Int? {
+    sessionPids[SessionKey(agent: agent, id: id)]
+  }
+
   /// Applies a data source update to the store.
   public func apply(_ update: SourceUpdate, now: Date = Date()) {
     switch update {
@@ -144,6 +157,8 @@ public final class SessionStore {
       applyHookEventUpdate(event)
     case .quota(let quota):
       quotas[quota.id] = quota
+    case .liveStatus(let sessionId, let pid, let status, let at, let cwd):
+      applyLiveStatusUpdate(sessionId: sessionId, pid: pid, status: status, at: at, cwd: cwd)
     case .sourceStatus(let kind, available: let available):
       sourceStatus[kind] = available
     }
@@ -177,6 +192,9 @@ public final class SessionStore {
         sessions.removeValue(forKey: session.sessionKey)
       }
     }
+
+    let currentKeys = Set(sessions.keys)
+    sessionPids = sessionPids.filter { currentKeys.contains($0.key) }
   }
 
   /// Pure decision evaluation helper for the attention pill.
@@ -229,6 +247,7 @@ public final class SessionStore {
       var merged = existing
       if merged.title == nil { merged.title = incoming.title }
       if merged.projectName.isEmpty { merged.projectName = incoming.projectName }
+      if merged.cwd == nil || merged.cwd?.isEmpty == true { merged.cwd = incoming.cwd }
       return merged
     }
 
@@ -236,13 +255,98 @@ public final class SessionStore {
       var merged = existing
       if merged.title == nil { merged.title = incoming.title }
       if merged.projectName.isEmpty { merged.projectName = incoming.projectName }
+      if merged.cwd == nil || merged.cwd?.isEmpty == true { merged.cwd = incoming.cwd }
       return merged
     }
 
     var merged = incoming
     if merged.title == nil { merged.title = existing.title }
     if merged.projectName.isEmpty { merged.projectName = existing.projectName }
+    if merged.cwd == nil || merged.cwd?.isEmpty == true { merged.cwd = existing.cwd }
     return merged
+  }
+}
+
+// MARK: - Live Status Updates
+
+extension SessionStore {
+  func applyLiveStatusUpdate(
+    sessionId: String,
+    pid: Int,
+    status: ClaudeLiveStatus,
+    at: Date,
+    cwd: String? = nil
+  ) {
+    let key = SessionKey(agent: .claudeCode, id: sessionId)
+    let liveProjectName = cwd.map { URL(fileURLWithPath: $0).lastPathComponent } ?? ""
+    if status != .finished {
+      sessionPids[key] = pid
+    } else {
+      sessionPids.removeValue(forKey: key)
+    }
+
+    guard var existing = sessions[key] else {
+      let state: SessionState
+      let waitingSince: Date?
+      switch status {
+      case .busy:
+        state = .running
+        waitingSince = nil
+      case .idle:
+        state = .waitingForInput
+        waitingSince = at
+      case .finished:
+        state = .finished
+        waitingSince = nil
+      case .unknown:
+        state = .running
+        waitingSince = nil
+      }
+      sessions[key] = SessionSnapshot(
+        id: sessionId,
+        agent: .claudeCode,
+        state: state,
+        projectName: liveProjectName,
+        lastActivity: at,
+        waitingSince: waitingSince,
+        cwd: cwd
+      )
+      return
+    }
+    if existing.projectName.isEmpty { existing.projectName = liveProjectName }
+    if existing.cwd == nil { existing.cwd = cwd }
+
+    switch status {
+    case .busy:
+      existing.state = .running
+      existing.waitingSince = nil
+      existing.lastActivity = max(existing.lastActivity, at)
+      sessions[key] = existing
+
+    case .idle:
+      if existing.state == .waitingForApproval {
+        let approvalTime = existing.waitingSince ?? existing.lastActivity
+        if approvalTime > at {
+          existing.lastActivity = max(existing.lastActivity, at)
+          sessions[key] = existing
+          return
+        }
+      }
+      existing.state = .waitingForInput
+      existing.waitingSince = at
+      existing.lastActivity = max(existing.lastActivity, at)
+      sessions[key] = existing
+
+    case .finished:
+      existing.state = .finished
+      existing.waitingSince = nil
+      existing.lastActivity = max(existing.lastActivity, at)
+      sessions[key] = existing
+
+    case .unknown:
+      existing.lastActivity = max(existing.lastActivity, at)
+      sessions[key] = existing
+    }
   }
 }
 
