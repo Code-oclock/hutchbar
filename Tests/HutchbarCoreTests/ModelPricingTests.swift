@@ -177,11 +177,8 @@ private struct MockPricingFileSystem: ModelPriceFileSystem {
   #expect(abs(summary.costUSD - sumOfIndividualCosts) < 0.000001)
 }
 
+// Uses the loader directly: resetting the shared table here raced with tests running in parallel.
 @Test func modelPricing_overrideFileNewerWinsCorruptIgnored() throws {
-  defer {
-    ModelPriceTable.resetCacheForTesting()
-  }
-
   let validJson = """
     {
       "schema": 1,
@@ -201,8 +198,7 @@ private struct MockPricingFileSystem: ModelPriceFileSystem {
     fileData: [validPath: Data(validJson.utf8)]
   )
 
-  ModelPriceTable.resetCacheForTesting(fileSystem: validFs, overridePath: validPath)
-  let overrideEntries = ModelPriceTable.entries()
+  let overrideEntries = ModelPriceDecoder.load(fileSystem: validFs, path: validPath)
   #expect(overrideEntries.count == 1)
   #expect(overrideEntries.first?.id == "claude-custom-override")
 
@@ -222,8 +218,7 @@ private struct MockPricingFileSystem: ModelPriceFileSystem {
     fileData: [corruptPath: Data(corruptJson.utf8)]
   )
 
-  ModelPriceTable.resetCacheForTesting(fileSystem: corruptFs, overridePath: corruptPath)
-  let fallbackEntries = ModelPriceTable.entries()
+  let fallbackEntries = ModelPriceDecoder.load(fileSystem: corruptFs, path: corruptPath)
   #expect(fallbackEntries.count == ModelPriceTable.bundled.count)
   #expect(fallbackEntries.contains(where: { $0.id == "claude-sonnet-5-5" }))
 }

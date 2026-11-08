@@ -76,12 +76,7 @@ private struct ProviderQuotaCardView: View {
   }
 
   private var agentIcon: String {
-    switch card.agent {
-    case .claudeCode:
-      return "asterisk"
-    case .codex:
-      return "hexagon"
-    }
+    card.agent.info.symbol
   }
 
   private var agentColor: Color {
@@ -89,12 +84,7 @@ private struct ProviderQuotaCardView: View {
   }
 
   private var providerTitle: String {
-    switch card.agent {
-    case .claudeCode:
-      return "Claude"
-    case .codex:
-      return "Codex"
-    }
+    card.agent.info.displayName
   }
 }
 

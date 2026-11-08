@@ -7,6 +7,8 @@ public enum PanelColorToken: String, Sendable, Equatable, CaseIterable {
   case blue
   case red
   case green
+  case purple
+  case teal
   case secondary
 }
 
@@ -17,12 +19,7 @@ public enum PanelV2Logic {
 
   /// Returns the semantic color token for the given agent provider mark.
   public static func agentColor(for agent: AgentKind) -> PanelColorToken {
-    switch agent {
-    case .claudeCode:
-      return .orange
-    case .codex:
-      return .blue
-    }
+    agent.info.color
   }
 
   /// Returns the semantic color token for a session's current state.

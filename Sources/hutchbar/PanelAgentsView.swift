@@ -269,12 +269,7 @@ private struct PanelAgentRowView: View {
   }
 
   private var agentIcon: String {
-    switch session.agent {
-    case .claudeCode:
-      return "asterisk"
-    case .codex:
-      return "hexagon"
-    }
+    session.agent.info.symbol
   }
 
   private var agentColor: Color {

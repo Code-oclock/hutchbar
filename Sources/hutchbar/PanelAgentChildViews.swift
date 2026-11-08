@@ -138,18 +138,10 @@ struct PanelChildRowView: View {
 
   @ViewBuilder
   private func sessionMark(for agent: AgentKind) -> some View {
-    switch agent {
-    case .claudeCode:
-      Image(systemName: "asterisk")
-        .font(.system(size: 11, weight: .bold))
-        .foregroundStyle(Color.orange)
-        .frame(width: 14)
-    case .codex:
-      Image(systemName: "hexagon")
-        .font(.system(size: 11, weight: .bold))
-        .foregroundStyle(Color.blue)
-        .frame(width: 14)
-    }
+    Image(systemName: agent.info.symbol)
+      .font(.system(size: 11, weight: .bold))
+      .foregroundStyle(agent.info.color.color)
+      .frame(width: 14)
   }
 
   @ViewBuilder

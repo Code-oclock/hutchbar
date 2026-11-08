@@ -45,12 +45,7 @@ public struct ExecutableLocator: Sendable {
   }
 
   public func locate(_ agent: AgentKind) -> String? {
-    switch agent {
-    case .claudeCode:
-      return locate(executable: "claude")
-    case .codex:
-      return locate(executable: "codex")
-    }
+    locate(executable: agent.info.executable)
   }
 
   public func locate(executable name: String) -> String? {

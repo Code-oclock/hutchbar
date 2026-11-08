@@ -300,17 +300,7 @@ public actor UsageScanner {
       guard let text = String(data: data, encoding: .utf8) else { return nil }
       let lines = text.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
 
-      let events: [UsageEvent]
-      switch agent {
-      case .claudeCode:
-        var seenMessageIds = Set<String>()
-        events = parseClaudeUsage(lines: lines, seenMessageIds: &seenMessageIds, calendar: calendar)
-      case .codex:
-        var state = CodexUsageState()
-        events = parseCodexUsage(lines: lines, state: &state, calendar: calendar)
-      }
-
-      return (size, events)
+      return (size, Self.parseUsageEvents(agent: agent, lines: lines, calendar: calendar))
     } catch {
       return nil
     }
@@ -381,6 +371,24 @@ public actor UsageScanner {
 
     if Darwin.rename(tempPath, resolved) != 0 {
       Darwin.unlink(tempPath)
+    }
+  }
+}
+
+extension UsageScanner {
+  /// Usage events of one transcript file; agents without file transcripts yield none.
+  static func parseUsageEvents(agent: AgentKind, lines: [String], calendar: Calendar)
+    -> [UsageEvent]
+  {
+    switch agent {
+    case .claudeCode:
+      var seenMessageIds = Set<String>()
+      return parseClaudeUsage(lines: lines, seenMessageIds: &seenMessageIds, calendar: calendar)
+    case .codex:
+      var state = CodexUsageState()
+      return parseCodexUsage(lines: lines, state: &state, calendar: calendar)
+    case .antigravity, .qwen, .opencode, .copilot:
+      return []
     }
   }
 }
