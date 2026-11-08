@@ -175,7 +175,7 @@ struct QuotaPresentationV3Tests {
     let presRu = QuotaPresentation.makeWindowPresentation(
       window: window, now: baseTime, language: .ru)
     #expect(presRu.remainingPercent == 100.0)
-    #expect(presRu.resetsInText == "обновится при запросе")
+    #expect(presRu.resetsInText == "сброшено")
     #expect(!presRu.isStale)
     #expect(presRu.pace == nil)
     #expect(presRu.level == .normal)
@@ -183,7 +183,7 @@ struct QuotaPresentationV3Tests {
     let presEn = QuotaPresentation.makeWindowPresentation(
       window: window, now: baseTime, language: .en)
     #expect(presEn.remainingPercent == 100.0)
-    #expect(presEn.resetsInText == "updates on next request")
+    #expect(presEn.resetsInText == "reset")
     #expect(!presEn.isStale)
     #expect(presEn.pace == nil)
     #expect(presEn.level == .normal)

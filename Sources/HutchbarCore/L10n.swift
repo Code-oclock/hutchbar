@@ -440,7 +440,7 @@ public enum L10n {
   // MARK: - Quotas v3 & Limits
 
   public static func updatesOnNextRequest(language: Language? = nil) -> String {
-    (language ?? currentLanguage()) == .ru ? "обновится при запросе" : "updates on next request"
+    (language ?? currentLanguage()) == .ru ? "сброшено" : "reset"
   }
 
   public static func notStarted(language: Language? = nil) -> String {
