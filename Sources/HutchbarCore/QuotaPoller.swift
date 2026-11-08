@@ -27,6 +27,14 @@ public enum QuotaProbeFailure: Error, Equatable, Sendable {
     case .malformed: self = .malformed
     }
   }
+
+  public init(_ antigravityFailure: AntigravityUsageProbe.Failure) {
+    switch antigravityFailure {
+    case .missing: self = .missing
+    case .unreachable: self = .unreachable
+    case .malformed: self = .malformed
+    }
+  }
 }
 
 /// An individual account quota probe target.
@@ -298,6 +306,20 @@ extension QuotaPoller {
         )
         targets.append(target)
       }
+    }
+
+    if ExecutableLocator.locate(.antigravity) != nil {
+      let antigravityProbe = AntigravityUsageProbe()
+      let target = QuotaProbeTarget(
+        id: "antigravity:agy",
+        agent: .antigravity,
+        source: .antigravityUsage,
+        read: { date in
+          let result = await antigravityProbe.read(now: date)
+          return result.mapError { QuotaProbeFailure($0) }
+        }
+      )
+      targets.append(target)
     }
 
     return targets

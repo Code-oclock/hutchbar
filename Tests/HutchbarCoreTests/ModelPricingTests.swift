@@ -248,7 +248,8 @@ private struct MockPricingFileSystem: ModelPriceFileSystem {
   let scanner = UsageScanner(
     cacheFilePath: cachePath,
     claudeProjectsRoot: tempDir.appendingPathComponent("claude").path,
-    codexSessionsRoot: tempDir.appendingPathComponent("codex").path
+    codexSessionsRoot: tempDir.appendingPathComponent("codex").path,
+    qwenUsageRoot: tempDir.appendingPathComponent("qwen").path
   )
 
   let ledger = await scanner.scanOnce()

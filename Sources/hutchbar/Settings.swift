@@ -78,6 +78,8 @@ extension SourceKind {
       return "Claude Code usage"
     case .codexUsage:
       return "Codex usage"
+    case .antigravityUsage:
+      return "Antigravity usage"
     }
   }
 }
