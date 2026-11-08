@@ -56,6 +56,11 @@ struct HutchbarApp {
       }
       RunLoop.main.run()
     }
+    if let index = arguments.firstIndex(of: "--render-icon"),
+      arguments.index(after: index) < arguments.endIndex
+    {
+      exit(StatusIconRenderer.renderSamples(to: arguments[arguments.index(after: index)]) ? 0 : 1)
+    }
     if arguments.contains("--probe-limits") {
       Task {
         await probeLimits()
@@ -80,7 +85,8 @@ struct HutchbarApp {
     }
     guard arguments.isEmpty else {
       fputs(
-        "Usage: hutchbar [--hook | --print-hooks | --probe-limits | --selftest | --version]\n",
+        "Usage: hutchbar [--hook | --print-hooks | --probe-limits | --render-panel <png>"
+          + " | --render-icon <dir> | --selftest | --version]\n",
         stderr)
       exit(64)
     }
