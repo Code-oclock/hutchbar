@@ -334,7 +334,7 @@ private struct PanelAgentRowView: View {
   private var accessibilityDescription: String {
     var parts = [
       session.projectName,
-      session.agent == .claudeCode ? "Claude Code" : "Codex",
+      session.agent.info.displayName,
       sessionStateDescription(session.state),
     ]
     if let title = session.title, !title.isEmpty {

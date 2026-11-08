@@ -145,4 +145,135 @@ struct QuotaPresentationTests {
     #expect(presentation.cards.isEmpty)
     #expect(presentation.card(for: .claudeCode) == nil)
   }
+
+  @Test func quotaPresentation_masonryTwoColumnLayout() {
+    let resetDate = baseTime.addingTimeInterval(3600)
+    let claudeQuota = AccountQuota(
+      agent: .claudeCode,
+      accountName: "claude-user",
+      windows: [
+        QuotaWindow(windowMinutes: 300, usedPercent: 10.0, resetsAt: resetDate),
+        QuotaWindow(windowMinutes: 10080, usedPercent: 20.0, resetsAt: resetDate),
+      ],
+      observedAt: baseTime
+    )
+    let codexQuota = AccountQuota(
+      agent: .codex,
+      accountName: "codex-user",
+      windows: [
+        QuotaWindow(windowMinutes: 300, usedPercent: 15.0, resetsAt: resetDate),
+        QuotaWindow(windowMinutes: 10080, usedPercent: 25.0, resetsAt: resetDate),
+        QuotaWindow(windowMinutes: 60, usedPercent: 5.0, resetsAt: resetDate),
+        QuotaWindow(windowMinutes: 120, usedPercent: 8.0, resetsAt: resetDate),
+      ],
+      observedAt: baseTime
+    )
+    let agyQuota = AccountQuota(
+      agent: .antigravity,
+      accountName: "agy-user",
+      windows: [
+        QuotaWindow(windowMinutes: 300, usedPercent: 30.0, resetsAt: resetDate),
+        QuotaWindow(windowMinutes: 10080, usedPercent: 40.0, resetsAt: resetDate),
+      ],
+      observedAt: baseTime
+    )
+    let qwenQuota = AccountQuota(
+      agent: .qwen,
+      accountName: "qwen-user",
+      windows: [
+        QuotaWindow(windowMinutes: 300, usedPercent: 50.0, resetsAt: resetDate)
+      ],
+      observedAt: baseTime
+    )
+
+    let presentation = QuotaPresentation(
+      quotas: [codexQuota, qwenQuota, claudeQuota, agyQuota],
+      now: baseTime
+    )
+
+    let columns = presentation.cardColumns
+    #expect(columns.left.map(\.agent) == [.claudeCode, .antigravity, .qwen])
+    #expect(columns.right.map(\.agent) == [.codex])
+  }
+
+  @Test func quotaPresentation_scopeGroupingAndOrder() {
+    let resetDate = baseTime.addingTimeInterval(3600)
+    let windowGeminiWeek = QuotaWindow(
+      windowMinutes: 10080, usedPercent: 40.0, resetsAt: resetDate, scope: "Gemini")
+    let windowGemini5h = QuotaWindow(
+      windowMinutes: 300, usedPercent: 10.0, resetsAt: resetDate, scope: "Gemini")
+    let windowClaudeWeek = QuotaWindow(
+      windowMinutes: 10080, usedPercent: 30.0, resetsAt: resetDate, scope: "Claude+GPT")
+    let windowClaude5h = QuotaWindow(
+      windowMinutes: 300, usedPercent: 20.0, resetsAt: resetDate, scope: "Claude+GPT")
+
+    let quota = AccountQuota(
+      agent: .antigravity,
+      accountName: "work",
+      windows: [windowGeminiWeek, windowGemini5h, windowClaudeWeek, windowClaude5h],
+      observedAt: baseTime
+    )
+
+    let presentation = QuotaPresentation(quotas: [quota], now: baseTime, language: .ru)
+    guard let card = presentation.card(for: .antigravity),
+      let account = card.accounts.first
+    else {
+      Issue.record("Card or account missing")
+      return
+    }
+
+    #expect(account.windowGroups.count == 2)
+
+    let groupClaude = account.windowGroups[0]
+    #expect(groupClaude.scope == "Claude+GPT")
+    #expect(groupClaude.windows.count == 2)
+    #expect(groupClaude.windows[0].windowMinutes == 300)
+    #expect(groupClaude.windows[0].label == "Сессия")
+    #expect(groupClaude.windows[1].windowMinutes == 10080)
+    #expect(groupClaude.windows[1].label == "Неделя")
+
+    let groupGemini = account.windowGroups[1]
+    #expect(groupGemini.scope == "Gemini")
+    #expect(groupGemini.windows.count == 2)
+    #expect(groupGemini.windows[0].windowMinutes == 300)
+    #expect(groupGemini.windows[0].label == "Сессия")
+    #expect(groupGemini.windows[1].windowMinutes == 10080)
+    #expect(groupGemini.windows[1].label == "Неделя")
+
+    #expect(account.windows.count == 4)
+  }
+
+  @Test func quotaPresentation_unscopedAndScopedMixed() {
+    let resetDate = baseTime.addingTimeInterval(3600)
+    let windowUnscopedWeek = QuotaWindow(
+      windowMinutes: 10080, usedPercent: 50.0, resetsAt: resetDate, scope: nil)
+    let windowUnscoped5h = QuotaWindow(
+      windowMinutes: 300, usedPercent: 10.0, resetsAt: resetDate, scope: nil)
+    let windowScoped = QuotaWindow(
+      windowMinutes: 10080, usedPercent: 20.0, resetsAt: resetDate, scope: "Sonnet")
+
+    let quota = AccountQuota(
+      agent: .claudeCode,
+      accountName: "mixed",
+      windows: [windowUnscopedWeek, windowUnscoped5h, windowScoped],
+      observedAt: baseTime
+    )
+
+    let presentation = QuotaPresentation(quotas: [quota], now: baseTime, language: .ru)
+    guard let account = presentation.card(for: .claudeCode)?.accounts.first else {
+      Issue.record("Account missing")
+      return
+    }
+
+    #expect(account.windowGroups.count == 2)
+    let unscopedGroup = account.windowGroups[0]
+    #expect(unscopedGroup.scope == nil)
+    #expect(unscopedGroup.windows.count == 2)
+    #expect(unscopedGroup.windows[0].windowMinutes == 300)
+    #expect(unscopedGroup.windows[1].windowMinutes == 10080)
+
+    let scopedGroup = account.windowGroups[1]
+    #expect(scopedGroup.scope == "Sonnet")
+    #expect(scopedGroup.windows.count == 1)
+  }
 }
