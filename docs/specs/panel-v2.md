@@ -6,9 +6,11 @@ Feedback that drove it: "Waiting for you" mixed two different situations without
 
 ## 1. Menu bar item
 
-- Idle: two horizontal bars, 18×3 pt each, 2 pt apart: top = session (5h) **remaining** of the most constrained account, bottom = week (7d) remaining. Template image (monochrome) while every remaining value ≥ 10 %; a bar below 10 % is drawn red (then the image is not template).
-- Someone waiting: a rounded pill to the right with the count; orange if any session needs approval, blue if all are "your turn".
-- No quota data: bars hidden, only the pill (or a small neutral dot when nothing at all is known).
+> Superseded 2026-11-09 (`mockup/panel-v3.html`): the menu bar shows only the logo and the waiting count; quotas live in the panel.
+
+- The monochrome hutch logo (a house, 16×16 pt, 1.6 pt stroke), template image.
+- Someone waiting: the count to the right of the logo. Only "your turn": a plain number, still a template image. Any session needs approval: the number in an orange pill (then the image is not template). Above 99 it reads "99+".
+- `hutchbar --render-icon <dir>` writes every state as 4× PNG on a light and a dark menu bar.
 - Model: `StatusIconModel` in core (pure, tested); `StatusIconRenderer` draws it.
 
 ## 2. Agents block (full width, top)

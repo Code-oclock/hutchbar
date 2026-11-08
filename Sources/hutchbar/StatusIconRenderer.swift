@@ -3,170 +3,175 @@ import AppKit
 import Foundation
 import HutchbarCore
 
-/// Renders the menu bar status item image according to the status icon model.
+/// Renders the menu bar status item: the monochrome hutch logo plus the number of
+/// sessions waiting for the user. Quotas live in the panel, not in the menu bar.
+///
+/// - nobody waits: the logo alone, as a template image;
+/// - only "your turn": the logo and a plain number, still a template image;
+/// - someone waits for an approval: the number sits in an orange pill.
 public enum StatusIconRenderer {
   private static let canvasHeight: CGFloat = 22.0
-  private static let barWidth: CGFloat = 18.0
-  private static let barHeight: CGFloat = 3.0
-  private static let barRadius: CGFloat = 1.5
-  private static let barGap: CGFloat = 2.0
-  private static let dotDiameter: CGFloat = 6.0
+  private static let logoSide: CGFloat = 16.0
+  private static let logoStroke: CGFloat = 1.6
+  private static let spacing: CGFloat = 3.0
+  private static let sidePadding: CGFloat = 1.0
   private static let pillHeight: CGFloat = 14.0
-  private static let pillRadius: CGFloat = 7.0
-  private static let spacing: CGFloat = 4.0
-  private static let sidePadding: CGFloat = 2.0
-
-  public static func model(waitingCount: Int, quotaPercent: Double?) -> StatusIconModel {
-    StatusIconModel(waitingCount: waitingCount, quotaPercent: quotaPercent)
-  }
-
-  public static func image(waitingCount: Int, quotaPercent: Double?) -> NSImage {
-    let iconModel = model(waitingCount: waitingCount, quotaPercent: quotaPercent)
-    return image(for: iconModel)
-  }
+  private static let pillPadding: CGFloat = 5.0
 
   public static func image(for model: StatusIconModel) -> NSImage {
-    let hasQuotas = (model.sessionRemaining != nil || model.weekRemaining != nil)
-    let hasPill = model.waitingCount > 0
+    let count = max(0, model.waitingCount)
+    let countText = count > 99 ? "99+" : "\(count)"
+    let usesPill = count > 0 && model.pillStyle == .approval
+    let attributes = textAttributes(inPill: usesPill)
+    let textSize = (countText as NSString).size(withAttributes: attributes)
+    let badgeWidth =
+      usesPill ? max(pillHeight, ceil(textSize.width + pillPadding * 2)) : ceil(textSize.width)
 
-    let countText = "\(model.waitingCount)"
-    let textAttributes: [NSAttributedString.Key: Any] = [
-      .font: NSFont.monospacedDigitSystemFont(ofSize: 10.0, weight: .bold),
-      .foregroundColor: NSColor.white,
-    ]
-    let textSize = (countText as NSString).size(withAttributes: textAttributes)
-    let pillWidth = max(pillHeight, ceil(textSize.width + 10.0))
+    var width = sidePadding + logoSide + sidePadding
+    if count > 0 { width += spacing + badgeWidth }
 
-    var contentWidth: CGFloat = 0.0
-    if hasQuotas {
-      contentWidth += barWidth
-      if hasPill {
-        contentWidth += spacing + pillWidth
+    let size = NSSize(width: ceil(width), height: canvasHeight)
+    let result = NSImage(size: size, flipped: true) { _ in
+      drawLogo(originX: sidePadding, originY: (canvasHeight - logoSide) / 2.0)
+      guard count > 0 else { return true }
+      let badgeX = sidePadding + logoSide + spacing
+      if usesPill {
+        drawPill(originX: badgeX, width: badgeWidth)
       }
-    } else {
-      contentWidth += hasPill ? pillWidth : dotDiameter
-    }
-
-    let totalWidth = sidePadding + contentWidth + sidePadding
-    let imageSize = NSSize(width: ceil(totalWidth), height: canvasHeight)
-
-    let resultImage = NSImage(size: imageSize, flipped: false) { _ in
-      var currentX = sidePadding
-
-      if hasQuotas {
-        let sessionCritical =
-          (model.sessionRemaining != nil && (model.sessionRemaining ?? 0.0) < 10.0)
-        let weekCritical = (model.weekRemaining != nil && (model.weekRemaining ?? 0.0) < 10.0)
-
-        // Session remaining on top (y = 12)
-        drawBar(
-          originX: currentX, originY: 12.0, remaining: model.sessionRemaining,
-          isCritical: sessionCritical)
-        // Week remaining on bottom (y = 7)
-        drawBar(
-          originX: currentX, originY: 7.0, remaining: model.weekRemaining, isCritical: weekCritical)
-        currentX += barWidth
-
-        if hasPill {
-          currentX += spacing
-          drawPill(
-            at: currentX,
-            width: pillWidth,
-            text: countText,
-            textSize: textSize,
-            attributes: textAttributes,
-            style: model.pillStyle
-          )
-        }
-      } else {
-        if hasPill {
-          drawPill(
-            at: currentX,
-            width: pillWidth,
-            text: countText,
-            textSize: textSize,
-            attributes: textAttributes,
-            style: model.pillStyle
-          )
-        } else {
-          drawNeutralDot(at: currentX)
-        }
-      }
-
+      let textX = badgeX + (badgeWidth - textSize.width) / 2.0
+      let textY = (canvasHeight - textSize.height) / 2.0
+      (countText as NSString).draw(
+        in: NSRect(x: textX, y: textY, width: textSize.width, height: textSize.height),
+        withAttributes: attributes
+      )
       return true
     }
-
-    let sessionCritical = (model.sessionRemaining != nil && (model.sessionRemaining ?? 0.0) < 10.0)
-    let weekCritical = (model.weekRemaining != nil && (model.weekRemaining ?? 0.0) < 10.0)
-    let hasRedBar = hasQuotas && (sessionCritical || weekCritical)
-    resultImage.isTemplate = !hasRedBar && !hasPill
-    resultImage.accessibilityDescription = "Hutchbar"
-    return resultImage
+    result.isTemplate = !usesPill
+    result.accessibilityDescription = accessibilityText(count: count, approval: usesPill)
+    return result
   }
 
-  private static func drawBar(
-    originX: CGFloat,
-    originY: CGFloat,
-    remaining: Double?,
-    isCritical: Bool
-  ) {
-    let barRect = NSRect(x: originX, y: originY, width: barWidth, height: barHeight)
-    let barColor = isCritical ? NSColor.systemRed : NSColor.labelColor
-    let trackColor = barColor.withAlphaComponent(0.25)
-
-    let trackPath = NSBezierPath(
-      roundedRect: barRect,
-      xRadius: barRadius,
-      yRadius: barRadius
-    )
-    trackColor.setFill()
-    trackPath.fill()
-
-    guard let remaining, remaining > 0.0 else { return }
-    let clampedRemaining = max(0.0, min(100.0, remaining))
-    let fillWidth = (clampedRemaining / 100.0) * barWidth
-    guard fillWidth > 0.0 else { return }
-
-    let fillRect = NSRect(x: originX, y: originY, width: fillWidth, height: barHeight)
-    NSGraphicsContext.current?.saveGraphicsState()
-    trackPath.addClip()
-    barColor.setFill()
-    fillRect.fill()
-    NSGraphicsContext.current?.restoreGraphicsState()
+  private static func textAttributes(inPill: Bool) -> [NSAttributedString.Key: Any] {
+    [
+      .font: NSFont.monospacedDigitSystemFont(ofSize: inPill ? 10.0 : 12.0, weight: .semibold),
+      .foregroundColor: inPill ? NSColor.white : NSColor.labelColor,
+    ]
   }
 
-  private static func drawPill(
-    at originX: CGFloat,
-    width: CGFloat,
-    text: String,
-    textSize: NSSize,
-    attributes: [NSAttributedString.Key: Any],
-    style: PillStyle
-  ) {
-    let pillY = (canvasHeight - pillHeight) / 2.0
-    let pillRect = NSRect(x: originX, y: pillY, width: width, height: pillHeight)
-    let pillPath = NSBezierPath(
-      roundedRect: pillRect,
-      xRadius: pillRadius,
-      yRadius: pillRadius
-    )
-    let pillColor = (style == .approval) ? NSColor.systemOrange : NSColor.systemBlue
-    pillColor.setFill()
-    pillPath.fill()
+  /// The house from `mockup/panel-v3.html`, in its 16×16 SVG coordinates (y grows down).
+  private static func drawLogo(originX: CGFloat, originY: CGFloat) {
+    func point(_ xCoord: CGFloat, _ yCoord: CGFloat) -> NSPoint {
+      NSPoint(x: originX + xCoord, y: originY + yCoord)
+    }
+    let house = NSBezierPath()
+    house.move(to: point(2.5, 7.5))
+    house.line(to: point(8.0, 3.0))
+    house.line(to: point(13.5, 7.5))
+    house.line(to: point(13.5, 13.0))
+    house.curve(
+      to: point(13.0, 13.5), controlPoint1: point(13.5, 13.28), controlPoint2: point(13.28, 13.5))
+    house.line(to: point(3.0, 13.5))
+    house.curve(
+      to: point(2.5, 13.0), controlPoint1: point(2.72, 13.5), controlPoint2: point(2.5, 13.28))
+    house.close()
 
-    let textX = pillRect.minX + (pillRect.width - textSize.width) / 2.0
-    let textY = pillRect.minY + (pillRect.height - textSize.height) / 2.0
-    (text as NSString).draw(
-      in: NSRect(x: textX, y: textY, width: textSize.width, height: textSize.height),
-      withAttributes: attributes
-    )
+    let door = NSBezierPath()
+    door.move(to: point(6.0, 13.5))
+    door.line(to: point(6.0, 10.0))
+    door.line(to: point(10.0, 10.0))
+    door.line(to: point(10.0, 13.5))
+
+    NSColor.labelColor.setStroke()
+    for path in [house, door] {
+      path.lineWidth = logoStroke
+      path.lineJoinStyle = .round
+      path.lineCapStyle = .round
+      path.stroke()
+    }
   }
 
-  private static func drawNeutralDot(at originX: CGFloat) {
-    let dotY = (canvasHeight - dotDiameter) / 2.0
-    let dotRect = NSRect(x: originX, y: dotY, width: dotDiameter, height: dotDiameter)
-    let dotPath = NSBezierPath(ovalIn: dotRect)
-    NSColor.labelColor.withAlphaComponent(0.6).setFill()
-    dotPath.fill()
+  private static func drawPill(originX: CGFloat, width: CGFloat) {
+    let rect = NSRect(
+      x: originX, y: (canvasHeight - pillHeight) / 2.0, width: width, height: pillHeight)
+    NSColor.systemOrange.setFill()
+    NSBezierPath(roundedRect: rect, xRadius: pillHeight / 2.0, yRadius: pillHeight / 2.0).fill()
+  }
+
+  private static func accessibilityText(count: Int, approval: Bool) -> String {
+    guard count > 0 else { return "Hutchbar" }
+    return approval ? "Hutchbar: \(count) waiting, approval needed" : "Hutchbar: \(count) waiting"
+  }
+}
+
+// MARK: - Offline rendering (`hutchbar --render-icon <dir>`)
+
+extension StatusIconRenderer {
+  /// Writes the menu bar icon states as 4× PNGs on a light and a dark menu bar,
+  /// so the icon can be checked without starting the app.
+  @MainActor
+  public static func renderSamples(to directory: String) -> Bool {
+    func waiting(_ count: Int, _ style: PillStyle) -> StatusIconModel {
+      StatusIconModel(
+        sessionRemaining: nil, weekRemaining: nil, waitingCount: count, pillStyle: style)
+    }
+    let samples: [(String, StatusIconModel)] = [
+      ("idle", waiting(0, .none)),
+      ("turn-3", waiting(3, .yourTurn)),
+      ("approval-2", waiting(2, .approval)),
+      ("approval-120", waiting(120, .approval)),
+    ]
+    let appearances: [(String, NSAppearance.Name, NSColor)] = [
+      ("light", .aqua, NSColor(white: 0.93, alpha: 1)),
+      ("dark", .darkAqua, NSColor(white: 0.16, alpha: 1)),
+    ]
+    for (name, model) in samples {
+      for (suffix, appearanceName, background) in appearances {
+        let path = (directory as NSString).appendingPathComponent("icon-\(name)-\(suffix).png")
+        guard let appearance = NSAppearance(named: appearanceName),
+          writeSample(image(for: model), appearance: appearance, background: background, to: path)
+        else { return false }
+      }
+    }
+    return true
+  }
+
+  @MainActor
+  private static func writeSample(
+    _ icon: NSImage,
+    appearance: NSAppearance,
+    background: NSColor,
+    to path: String
+  ) -> Bool {
+    let scale: CGFloat = 4.0
+    let pixelsWide = Int(ceil(icon.size.width + 8) * scale)
+    let pixelsHigh = Int(icon.size.height * scale)
+    guard
+      let bitmap = NSBitmapImageRep(
+        bitmapDataPlanes: nil, pixelsWide: pixelsWide, pixelsHigh: pixelsHigh,
+        bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+        colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)
+    else { return false }
+    // Points, not pixels: the context then scales every drawing by `scale`.
+    bitmap.size = NSSize(width: CGFloat(pixelsWide) / scale, height: icon.size.height)
+    guard let context = NSGraphicsContext(bitmapImageRep: bitmap) else { return false }
+
+    var drawn = true
+    appearance.performAsCurrentDrawingAppearance {
+      NSGraphicsContext.saveGraphicsState()
+      NSGraphicsContext.current = context
+      background.setFill()
+      NSRect(origin: .zero, size: bitmap.size).fill()
+      let iconRect = NSRect(x: 4, y: 0, width: icon.size.width, height: icon.size.height)
+      // The drawing handler uses `labelColor`, which follows the current drawing
+      // appearance — close enough to how the menu bar tints a template image.
+      icon.draw(in: iconRect)
+      NSGraphicsContext.restoreGraphicsState()
+      guard let data = bitmap.representation(using: .png, properties: [:]) else {
+        drawn = false
+        return
+      }
+      drawn = (try? data.write(to: URL(fileURLWithPath: path))) != nil
+    }
+    return drawn
   }
 }
