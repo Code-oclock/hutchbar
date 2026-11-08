@@ -23,7 +23,7 @@ final class AttentionPillController {
   /// Re-evaluates AttentionPolicy; called by the app after each store update and on a 5 s timer.
   func evaluate(now: Date = Date(), thresholdSeconds: TimeInterval?) {
     let decision = AttentionPolicy.decide(
-      waiting: store.waiting,
+      waiting: store.waiting(now: now),
       now: now,
       threshold: thresholdSeconds,
       state: policyState
@@ -33,7 +33,9 @@ final class AttentionPillController {
     if let session = decision.sessionToShow {
       show(session: session, now: now)
     } else if let activeSession = currentSession {
-      let isStillWaiting = store.waiting.contains { $0.sessionKey == activeSession.sessionKey }
+      let isStillWaiting = store.waiting(now: now).contains {
+        $0.sessionKey == activeSession.sessionKey
+      }
       if !isStillWaiting {
         hide()
       }
