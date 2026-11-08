@@ -106,6 +106,10 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         },
         onClose: { [weak self] in
           self?.popover.performClose(nil)
+        },
+        onOpenSettings: { [weak self] in
+          self?.popover.performClose(nil)
+          self?.openSettings()
         }
       )
       let hostingController = NSHostingController(rootView: panel)

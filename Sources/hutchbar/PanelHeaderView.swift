@@ -15,28 +15,7 @@ struct PanelHeaderView: View {
 
       Spacer()
 
-      Menu {
-        Button(action: { usage.period = .today }) {
-          Text(L10n.periodToday())
-        }
-        Button(action: { usage.period = .week }) {
-          Text(L10n.periodWeek())
-        }
-        Button(action: { usage.period = .month }) {
-          Text(L10n.periodMonth())
-        }
-      } label: {
-        HStack(spacing: 4) {
-          Text(periodTitle(for: usage.period))
-          Text("▾")
-            .font(.caption2)
-        }
-        .font(.subheadline)
-        .fontWeight(.medium)
-      }
-      .menuStyle(.borderlessButton)
-      .fixedSize()
-      .accessibilityLabel(periodTitle(for: usage.period))
+      periodSwitch
 
       if let onClose {
         Button(action: onClose) {
@@ -51,6 +30,35 @@ struct PanelHeaderView: View {
     }
     .padding(.horizontal, 4)
     .padding(.vertical, 2)
+  }
+
+  /// Сегодня / Неделя / Месяц as a segmented control, drawn by hand: the AppKit
+  /// segmented picker does not survive `ImageRenderer` (`--render-panel`).
+  private var periodSwitch: some View {
+    HStack(spacing: 0) {
+      ForEach(UsagePeriod.allCases, id: \.self) { period in
+        let isSelected = usage.period == period
+        Button(action: { usage.period = period }) {
+          Text(periodTitle(for: period))
+            .font(.caption)
+            .fontWeight(isSelected ? .semibold : .regular)
+            .foregroundStyle(isSelected ? Color.white : Color.secondary)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 2)
+            .background(isSelected ? Color.accentColor : Color.clear)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+      }
+    }
+    .background(Color(nsColor: .controlBackgroundColor))
+    .clipShape(RoundedRectangle(cornerRadius: 6))
+    .overlay(
+      RoundedRectangle(cornerRadius: 6)
+        .stroke(Color.primary.opacity(0.1), lineWidth: 1)
+    )
+    .fixedSize()
   }
 
   private func periodTitle(for period: UsagePeriod) -> String {

@@ -406,7 +406,8 @@ public enum L10n {
   // MARK: - Hooks Configuration & Hints
 
   public static func hooksNotInstalled(language: Language? = nil) -> String {
-    (language ?? currentLanguage()) == .ru ? "Хуки не установлены" : "Hooks not installed"
+    (language ?? currentLanguage()) == .ru
+      ? "Хуки Claude не установлены" : "Claude hooks not installed"
   }
 
   public static func copyHooks(language: Language? = nil) -> String {

@@ -2,42 +2,49 @@
 import HutchbarCore
 import SwiftUI
 
-/// Footer view displayed when Claude Code hooks are not yet installed.
+/// Thin status line at the bottom of the panel: Claude hooks state (with a copy link
+/// while they are missing) and a link to Settings.
 struct PanelFooterView: View {
   let hooksInstalled: Bool
   let onCopyHooks: () -> Void
   let copied: Bool
+  var onOpenSettings: (() -> Void)?
 
+  // Plain buttons tinted like links: `.buttonStyle(.link)` is an AppKit control
+  // that `ImageRenderer` (`--render-panel`) cannot draw.
   var body: some View {
-    if !hooksInstalled {
-      HStack(spacing: 8) {
-        Image(systemName: "exclamationmark.triangle")
-          .foregroundStyle(.orange)
-          .font(.caption)
+    HStack(spacing: 6) {
+      Circle()
+        .fill(hooksInstalled ? Color.green : Color.orange)
+        .frame(width: 6, height: 6)
 
-        Text(L10n.hooksNotInstalled())
-          .font(.caption)
-          .foregroundStyle(.secondary)
+      Text(hooksInstalled ? L10n.hooksInstalled() : L10n.hooksNotInstalled())
+        .font(.caption)
+        .foregroundStyle(.secondary)
 
-        Spacer()
-
+      if !hooksInstalled {
         Button(action: onCopyHooks) {
-          HStack(spacing: 4) {
-            Image(systemName: copied ? "checkmark" : "doc.on.doc")
-            Text(copied ? L10n.copiedHooks() : L10n.copyHooks())
-          }
-          .font(.caption)
+          Text(copied ? L10n.copiedHooks() : L10n.copyHooks())
+            .font(.caption)
+            .foregroundStyle(Color.accentColor)
         }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
+        .buttonStyle(.plain)
+        .help(L10n.hooksSnippetHint())
         .accessibilityLabel(L10n.hooksSnippetHint())
       }
-      .padding(.horizontal, 10)
-      .padding(.vertical, 6)
-      .background(
-        RoundedRectangle(cornerRadius: 6)
-          .fill(Color.orange.opacity(0.1))
-      )
+
+      Spacer()
+
+      if let onOpenSettings {
+        Button(action: onOpenSettings) {
+          Text(L10n.openSettings())
+            .font(.caption)
+            .foregroundStyle(Color.accentColor)
+        }
+        .buttonStyle(.plain)
+      }
     }
+    .padding(.horizontal, 14)
+    .padding(.vertical, 7)
   }
 }
