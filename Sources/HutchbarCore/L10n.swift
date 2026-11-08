@@ -278,23 +278,14 @@ public enum L10n {
     let minutes = (totalSeconds % 3600) / 60
 
     if days >= 1 {
-      switch lang {
-      case .ru: return "\(days) д \(hours) ч"
-      case .en: return "\(days)d \(hours)h"
-      }
+      return lang == .ru ? "\(days) д \(hours) ч" : "\(days)d \(hours)h"
     }
 
     if hours >= 1 {
-      switch lang {
-      case .ru: return "\(hours) ч \(minutes) мин"
-      case .en: return "\(hours)h \(minutes)m"
-      }
+      return lang == .ru ? "\(hours) ч \(minutes) мин" : "\(hours)h \(minutes)m"
     }
 
-    switch lang {
-    case .ru: return "\(minutes) мин"
-    case .en: return "\(minutes)m"
-    }
+    return lang == .ru ? "\(minutes) мин" : "\(minutes)m"
   }
 
   public static func countdown(from resetsAt: Date?, now: Date, language: Language? = nil) -> String
@@ -422,33 +413,21 @@ public enum L10n {
   }
 
   public static func emptySpending(language: Language? = nil) -> String {
-    switch language ?? currentLanguage() {
-    case .ru: return "Нет данных о расходах"
-    case .en: return "No spending data"
-    }
+    (language ?? currentLanguage()) == .ru ? "Нет данных о расходах" : "No spending data"
   }
 
   // MARK: - Hooks Configuration & Hints
 
   public static func hooksNotInstalled(language: Language? = nil) -> String {
-    switch language ?? currentLanguage() {
-    case .ru: return "Хуки не установлены"
-    case .en: return "Hooks not installed"
-    }
+    (language ?? currentLanguage()) == .ru ? "Хуки не установлены" : "Hooks not installed"
   }
 
   public static func copyHooks(language: Language? = nil) -> String {
-    switch language ?? currentLanguage() {
-    case .ru: return "Скопировать"
-    case .en: return "Copy"
-    }
+    (language ?? currentLanguage()) == .ru ? "Скопировать" : "Copy"
   }
 
   public static func copiedHooks(language: Language? = nil) -> String {
-    switch language ?? currentLanguage() {
-    case .ru: return "Скопировано"
-    case .en: return "Copied"
-    }
+    (language ?? currentLanguage()) == .ru ? "Скопировано" : "Copied"
   }
 
   public static func hooksSnippetHint(language: Language? = nil) -> String {
@@ -456,5 +435,49 @@ public enum L10n {
     case .ru: return "Нажмите, чтобы скопировать конфигурацию хуков"
     case .en: return "Click to copy hooks configuration"
     }
+  }
+
+  // MARK: - Quotas v3 & Limits
+
+  public static func updatesOnNextRequest(language: Language? = nil) -> String {
+    (language ?? currentLanguage()) == .ru ? "обновится при запросе" : "updates on next request"
+  }
+
+  public static func notStarted(language: Language? = nil) -> String {
+    (language ?? currentLanguage()) == .ru ? "не начато" : "not started"
+  }
+
+  public static func dataAsOf(_ time: String, language: Language? = nil) -> String {
+    (language ?? currentLanguage()) == .ru ? "данные от \(time)" : "as of \(time)"
+  }
+
+  public static func currentAccountNow(language: Language? = nil) -> String {
+    (language ?? currentLanguage()) == .ru ? "● сейчас" : "● now"
+  }
+
+  public static func resetCredits(_ count: Int, language: Language? = nil) -> String {
+    switch language ?? currentLanguage() {
+    case .en:
+      return count == 1 ? "1 reset" : "\(count) resets"
+    case .ru:
+      let mod10 = count % 10
+      let mod100 = count % 100
+      if mod10 == 1 && mod100 != 11 {
+        return "\(count) сброс"
+      } else if (2...4).contains(mod10) && !(12...14).contains(mod100) {
+        return "\(count) сброса"
+      }
+      return "\(count) сбросов"
+    }
+  }
+
+  public static func claudeLoginHint(language: Language? = nil) -> String {
+    (language ?? currentLanguage()) == .ru
+      ? "Войдите в Claude Code: claude /login" : "Sign in to Claude Code: claude /login"
+  }
+
+  public static func codexLoginHint(language: Language? = nil) -> String {
+    (language ?? currentLanguage()) == .ru
+      ? "Войдите в Codex: codex login" : "Sign in to Codex: codex login"
   }
 }

@@ -59,13 +59,26 @@ struct PanelView: View {
       }
 
       let hooksInstalled = store.sourceStatus[.claudeHooks] == true
-      if !hooksInstalled {
+      let showClaudeLogin = store.sourceStatus[.claudeUsage] == false && !hasOtherClaudeData
+      let showCodexLogin = store.sourceStatus[.codexUsage] == false && !hasOtherCodexData
+
+      if !hooksInstalled || showClaudeLogin || showCodexLogin {
         Divider()
-        PanelFooterView(
-          hooksInstalled: hooksInstalled,
-          onCopyHooks: copyHooksConfiguration,
-          copied: copiedHooks
-        )
+        VStack(alignment: .leading, spacing: 6) {
+          if !hooksInstalled {
+            PanelFooterView(
+              hooksInstalled: hooksInstalled,
+              onCopyHooks: copyHooksConfiguration,
+              copied: copiedHooks
+            )
+          }
+          if showClaudeLogin {
+            footerHintRow(text: L10n.claudeLoginHint())
+          }
+          if showCodexLogin {
+            footerHintRow(text: L10n.codexLoginHint())
+          }
+        }
         .padding(8)
       }
     }
@@ -200,5 +213,37 @@ struct PanelView: View {
       guard !Task.isCancelled else { return }
       copiedHooks = false
     }
+  }
+
+  private var hasOtherClaudeData: Bool {
+    store.quotas.values.contains { $0.agent == .claudeCode }
+      || store.waiting.contains { $0.agent == .claudeCode }
+      || store.working.contains { $0.agent == .claudeCode }
+  }
+
+  private var hasOtherCodexData: Bool {
+    store.quotas.values.contains { $0.agent == .codex }
+      || store.waiting.contains { $0.agent == .codex }
+      || store.working.contains { $0.agent == .codex }
+  }
+
+  private func footerHintRow(text: String) -> some View {
+    HStack(spacing: 8) {
+      Image(systemName: "info.circle")
+        .foregroundStyle(.secondary)
+        .font(.caption)
+
+      Text(text)
+        .font(.caption)
+        .foregroundStyle(.secondary)
+
+      Spacer()
+    }
+    .padding(.horizontal, 10)
+    .padding(.vertical, 6)
+    .background(
+      RoundedRectangle(cornerRadius: 6)
+        .fill(Color.secondary.opacity(0.1))
+    )
   }
 }
