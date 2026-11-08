@@ -387,6 +387,14 @@ public enum L10n {
     }
   }
 
+  public static func withoutPrice(language: Language? = nil) -> String {
+    (language ?? currentLanguage()) == .ru ? "без цены" : "without price"
+  }
+
+  public static func plusWithoutPrice(language: Language? = nil) -> String {
+    (language ?? currentLanguage()) == .ru ? "+ без цены" : "+ without price"
+  }
+
   // MARK: - Agent Process & Navigation
 
   public static func agentProcessNotFound(language: Language? = nil) -> String {
