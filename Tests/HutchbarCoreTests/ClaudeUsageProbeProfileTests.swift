@@ -123,7 +123,8 @@ struct ClaudeUsageProbeProfileTests {
     let probe = ClaudeUsageProbe(
       fileSystem: fileSystem,
       runner: fakeRunner,
-      locator: ExecutableLocator(fileSystem: FixedExecutableLocatorFileSystem())
+      locator: ExecutableLocator(fileSystem: FixedExecutableLocatorFileSystem()),
+      cacheSettleTimeout: 0
     )
 
     let profile = ClaudeProfile(

@@ -42,7 +42,7 @@ Payload (verified live with Claude Code 2.1.319): `subscription_type` (`"pro"`),
 
 Result: `AccountQuota(agent: .claudeCode, accountName: <label>, windows, observedAt: now, source: .agentCLI, plan: subscription_type)`. Label: the part of `oauthAccount.emailAddress` before `@` from the profile's `.claude.json`, else the directory name. The email itself is never stored or logged; only the label is kept.
 
-Failures (`ClaudeUsageProbe.Failure`): `.missing` (no executable), `.needsSignIn` (`rate_limits_available != true`, or an error mentioning auth/login), `.outdated` (unknown control request), `.unreachable` (timeout 25 s, process died, or the answer is Claude's cached copy: `.claude.json` `cachedUsageUtilization.fetchedAtMs` older than 60 s at the moment of the answer), `.malformed`.
+Failures (`ClaudeUsageProbe.Failure`): `.missing` (no executable), `.needsSignIn` (`rate_limits_available != true`, or an error mentioning auth/login), `.outdated` (unknown control request), `.unreachable` (timeout 25 s, process died, or the answer is Claude's cached copy: `.claude.json` `cachedUsageUtilization.fetchedAtMs` older than 60 s at the moment of the request), `.malformed`. Claude saves the new copy only after it has answered, so a stale-looking copy is re-read for up to 2 s before the answer counts as offline (seen live: without the wait every request made more than 60 s after the previous one failed).
 
 ## 4. Codex (`CodexUsageProbe.swift`)
 

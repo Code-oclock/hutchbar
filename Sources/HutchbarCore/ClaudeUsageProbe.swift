@@ -75,17 +75,20 @@ public struct ClaudeUsageProbe: Sendable {
   private let runner: any AgentProcessRunner
   private let locator: ExecutableLocator
   private let baseEnvironment: [String: String]
+  private let cacheSettleTimeout: Double
 
   public init(
     fileSystem: any ClaudeProbeFileSystem = DefaultClaudeProbeFileSystem(),
     runner: any AgentProcessRunner = LocalAgentProcessRunner(),
     locator: ExecutableLocator? = nil,
-    baseEnvironment: [String: String] = ProcessInfo.processInfo.environment
+    baseEnvironment: [String: String] = ProcessInfo.processInfo.environment,
+    cacheSettleTimeout: Double = 2.0
   ) {
     self.fileSystem = fileSystem
     self.runner = runner
     self.locator = locator ?? ExecutableLocator()
     self.baseEnvironment = baseEnvironment
+    self.cacheSettleTimeout = cacheSettleTimeout
   }
 
   public func profiles() -> [ClaudeProfile] {
@@ -205,7 +208,7 @@ public struct ClaudeUsageProbe: Sendable {
     let usageResponse = try await waitForControlResponse(
       session: session, expectedRequestId: "usage")
 
-    try verifyNotStaleCache(profile: profile, now: now)
+    try await verifyNotStaleCache(profile: profile, now: now)
 
     return try parseUsagePayload(usageResponse, profile: profile, now: now)
   }
@@ -261,19 +264,28 @@ public struct ClaudeUsageProbe: Sendable {
     }
   }
 
-  private func verifyNotStaleCache(profile: ClaudeProfile, now: Date) throws {
+  /// Claude answers from its saved copy while it is younger than 60 s, otherwise asks the
+  /// account and saves the new copy, but only after it has answered. So a stale-looking copy
+  /// is re-read for up to `cacheSettleTimeout` before the answer counts as an offline copy.
+  private func verifyNotStaleCache(profile: ClaudeProfile, now: Date) async throws {
+    let deadline = ContinuousClock.now + .seconds(cacheSettleTimeout)
+    while true {
+      guard let fetchedAt = cachedUsageFetchedAt(profile: profile) else { return }
+      if now.timeIntervalSince(fetchedAt) <= 60.0 { return }
+      if ContinuousClock.now >= deadline { throw Failure.unreachable }
+      try? await Task.sleep(for: .milliseconds(100))
+    }
+  }
+
+  private func cachedUsageFetchedAt(profile: ClaudeProfile) -> Date? {
     guard let data = fileSystem.readFile(atPath: profile.configFilePath),
       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
       let cachedUsage = json["cachedUsageUtilization"] as? [String: Any],
       let fetchedAtMs = (cachedUsage["fetchedAtMs"] as? NSNumber)?.doubleValue
     else {
-      return
+      return nil
     }
-
-    let fetchedAt = Date(timeIntervalSince1970: fetchedAtMs / 1000.0)
-    if now.timeIntervalSince(fetchedAt) > 60.0 {
-      throw Failure.unreachable
-    }
+    return Date(timeIntervalSince1970: fetchedAtMs / 1000.0)
   }
 
   private func parseUsagePayload(
