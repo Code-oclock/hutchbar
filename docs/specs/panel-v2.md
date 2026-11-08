@@ -15,6 +15,8 @@ Feedback that drove it: "Waiting for you" mixed two different situations without
 
 ## 2. Agents block (full width, top)
 
+> 2026-11-09, per `mockup/panel-v3.html`: two cards — «Ждут тебя» / "Waiting for you" (hint «клик — перейти в окно», the quiet row sits under it) and «Работают» / "Working" (hint «вложенные вызовы — деревом»). The period switch in the header is a hand-drawn segmented control. The footer is a thin status line: Claude hooks state (copy link while missing) and «Настройки» / "Settings"; login hints sit above it.
+
 Only shown when there are sessions. One row per session, sorted: needs approval → your turn → working (then by waiting time / last activity).
 
 Row: agent mark (Claude: orange ✳-like glyph `asterisk`; Codex: blue `hexagon` — generic SF Symbols, no brand logos), project name, title (secondary), **reason badge**:

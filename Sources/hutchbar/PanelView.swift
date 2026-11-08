@@ -10,6 +10,7 @@ struct PanelView: View {
   let usage: UsageViewModel
   let onJump: @MainActor (SessionSnapshot) -> Void
   var onClose: (@MainActor () -> Void)?
+  var onOpenSettings: (@MainActor () -> Void)?
 
   private let scrollable: Bool
 
@@ -38,12 +39,14 @@ struct PanelView: View {
     usage: UsageViewModel = UsageViewModel(),
     onJump: @escaping @MainActor (SessionSnapshot) -> Void,
     onClose: (@MainActor () -> Void)? = nil,
+    onOpenSettings: (@MainActor () -> Void)? = nil,
     scrollable: Bool = true
   ) {
     self.store = store
     self.usage = usage
     self.onJump = onJump
     self.onClose = onClose
+    self.onOpenSettings = onOpenSettings
     self.scrollable = scrollable
   }
 
@@ -58,20 +61,11 @@ struct PanelView: View {
         panelContent
       }
 
-      let hooksInstalled = store.sourceStatus[.claudeHooks] == true
       let showClaudeLogin = store.sourceStatus[.claudeUsage] == false && !hasOtherClaudeData
       let showCodexLogin = store.sourceStatus[.codexUsage] == false && !hasOtherCodexData
 
-      if !hooksInstalled || showClaudeLogin || showCodexLogin {
-        Divider()
+      if showClaudeLogin || showCodexLogin {
         VStack(alignment: .leading, spacing: 6) {
-          if !hooksInstalled {
-            PanelFooterView(
-              hooksInstalled: hooksInstalled,
-              onCopyHooks: copyHooksConfiguration,
-              copied: copiedHooks
-            )
-          }
           if showClaudeLogin {
             footerHintRow(text: L10n.claudeLoginHint())
           }
@@ -79,8 +73,17 @@ struct PanelView: View {
             footerHintRow(text: L10n.codexLoginHint())
           }
         }
-        .padding(8)
+        .padding(.horizontal, 8)
+        .padding(.top, 4)
       }
+
+      Divider()
+      PanelFooterView(
+        hooksInstalled: store.sourceStatus[.claudeHooks] == true,
+        onCopyHooks: copyHooksConfiguration,
+        copied: copiedHooks,
+        onOpenSettings: onOpenSettings
+      )
     }
     .frame(width: 560)
     .background(.regularMaterial)

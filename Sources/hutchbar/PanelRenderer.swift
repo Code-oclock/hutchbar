@@ -53,6 +53,7 @@ enum PanelRenderer {
       usage: usage,
       onJump: { _ in },
       onClose: nil,
+      onOpenSettings: {},
       scrollable: false
     )
     .frame(width: 560)

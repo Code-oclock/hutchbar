@@ -2,8 +2,8 @@
 import HutchbarCore
 import SwiftUI
 
-/// Full-width agents block displaying active sessions organized into waiting,
-/// working, and quiet sections with nested children.
+/// Agents block: active sessions organized into waiting (with quiet ones under it)
+/// and working cards, children nested under their parents.
 struct PanelAgentsView: View {
   let tree: AgentTree
   let quietThresholdMinutes: Int
@@ -32,27 +32,50 @@ struct PanelAgentsView: View {
     self.onJump = onJump
   }
 
+  /// Two cards, as in `mockup/panel-v3.html`: «Ждут тебя» (with the quiet row under it)
+  /// and «Работают» (nested calls as a tree).
   var body: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      if !tree.waiting.isEmpty {
-        sectionBlock(
-          title: L10n.waitingSectionTitle(),
-          nodes: tree.waiting
-        )
+    VStack(alignment: .leading, spacing: 10) {
+      if !tree.waiting.isEmpty || !tree.quiet.isEmpty {
+        sectionCard(title: L10n.waitingSectionTitle(), hint: L10n.waitingSectionHint()) {
+          nodeList(tree.waiting)
+          if !tree.quiet.isEmpty {
+            quietSection
+          }
+        }
       }
 
       if !tree.working.isEmpty {
-        sectionBlock(
-          title: L10n.workingSectionTitle(),
-          nodes: tree.working
-        )
-      }
-
-      if !tree.quiet.isEmpty {
-        quietSection
+        sectionCard(title: L10n.workingSectionTitle(), hint: L10n.workingSectionHint()) {
+          nodeList(tree.working)
+        }
       }
     }
+  }
+
+  private func sectionCard<Content: View>(
+    title: String,
+    hint: String,
+    @ViewBuilder content: () -> Content
+  ) -> some View {
+    VStack(alignment: .leading, spacing: 3) {
+      HStack(alignment: .firstTextBaseline) {
+        Text(title.uppercased())
+          .font(.caption2)
+          .fontWeight(.semibold)
+          .foregroundStyle(.secondary)
+        Spacer()
+        Text(hint)
+          .font(.caption2)
+          .foregroundStyle(.tertiary)
+      }
+      .padding(.horizontal, 6)
+      .padding(.top, 2)
+
+      content()
+    }
     .padding(6)
+    .frame(maxWidth: .infinity, alignment: .leading)
     .background(
       RoundedRectangle(cornerRadius: 10)
         .fill(Color(nsColor: .controlBackgroundColor).opacity(0.65))
@@ -63,24 +86,14 @@ struct PanelAgentsView: View {
     )
   }
 
-  @ViewBuilder
-  private func sectionBlock(title: String, nodes: [AgentNode]) -> some View {
-    VStack(alignment: .leading, spacing: 3) {
-      Text(title)
-        .font(.caption2)
-        .fontWeight(.semibold)
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 6)
-        .padding(.top, 2)
-
-      ForEach(nodes) { node in
-        PanelRootNodeView(
-          node: node,
-          selectedSessionId: selectedSessionId,
-          onSelect: onSelect,
-          onJump: onJump
-        )
-      }
+  private func nodeList(_ nodes: [AgentNode]) -> some View {
+    ForEach(nodes) { node in
+      PanelRootNodeView(
+        node: node,
+        selectedSessionId: selectedSessionId,
+        onSelect: onSelect,
+        onJump: onJump
+      )
     }
   }
 
@@ -107,14 +120,7 @@ struct PanelAgentsView: View {
       .buttonStyle(.plain)
 
       if isQuietExpanded {
-        ForEach(tree.quiet) { node in
-          PanelRootNodeView(
-            node: node,
-            selectedSessionId: selectedSessionId,
-            onSelect: onSelect,
-            onJump: onJump
-          )
-        }
+        nodeList(tree.quiet)
       }
     }
   }

@@ -12,6 +12,22 @@ extension L10n {
     (language ?? currentLanguage()) == .ru ? "Работают" : "Working"
   }
 
+  public static func waitingSectionHint(language: Language? = nil) -> String {
+    (language ?? currentLanguage()) == .ru ? "клик — перейти в окно" : "click to jump to the window"
+  }
+
+  public static func workingSectionHint(language: Language? = nil) -> String {
+    (language ?? currentLanguage()) == .ru ? "вложенные вызовы — деревом" : "nested calls as a tree"
+  }
+
+  public static func hooksInstalled(language: Language? = nil) -> String {
+    (language ?? currentLanguage()) == .ru ? "Хуки Claude установлены" : "Claude hooks installed"
+  }
+
+  public static func openSettings(language: Language? = nil) -> String {
+    (language ?? currentLanguage()) == .ru ? "Настройки" : "Settings"
+  }
+
   public static func subagent(language: Language? = nil) -> String {
     (language ?? currentLanguage()) == .ru ? "сабагент" : "subagent"
   }

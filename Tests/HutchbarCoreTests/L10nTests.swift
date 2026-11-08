@@ -199,8 +199,8 @@ struct L10nTests {
   }
 
   @Test func l10n_hooksHints() {
-    #expect(L10n.hooksNotInstalled(language: .ru) == "Хуки не установлены")
-    #expect(L10n.hooksNotInstalled(language: .en) == "Hooks not installed")
+    #expect(L10n.hooksNotInstalled(language: .ru) == "Хуки Claude не установлены")
+    #expect(L10n.hooksNotInstalled(language: .en) == "Claude hooks not installed")
 
     #expect(L10n.copyHooks(language: .ru) == "Скопировать")
     #expect(L10n.copyHooks(language: .en) == "Copy")
