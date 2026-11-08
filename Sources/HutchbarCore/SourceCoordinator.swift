@@ -69,6 +69,7 @@ public actor SourceCoordinator {
     public var pollInterval: TimeInterval
     public var freshnessWindow: TimeInterval
     public var maxTrackedFiles: Int
+    public var processTable: (any ProcessTable)?
 
     public init(
       claudeProjectsRoot: String = Configuration.defaultClaudeProjectsRoot,
@@ -79,7 +80,8 @@ public actor SourceCoordinator {
       enabledSources: Set<SourceKind> = Set(SourceKind.allCases),
       pollInterval: TimeInterval = 2.0,
       freshnessWindow: TimeInterval = 24 * 3600,
-      maxTrackedFiles: Int = 200
+      maxTrackedFiles: Int = 200,
+      processTable: (any ProcessTable)? = nil
     ) {
       self.claudeProjectsRoot = claudeProjectsRoot
       self.claudeSessionsRoot = claudeSessionsRoot
@@ -90,6 +92,7 @@ public actor SourceCoordinator {
       self.pollInterval = pollInterval
       self.freshnessWindow = freshnessWindow
       self.maxTrackedFiles = maxTrackedFiles
+      self.processTable = processTable
     }
 
     public static var defaultClaudeProjectsRoot: String {
@@ -113,7 +116,7 @@ public actor SourceCoordinator {
     }
   }
 
-  private final class TrackedSession {
+  final class TrackedSession {
     let reader: JSONLTailReader
     let agent: AgentKind
     var snapshot: SessionSnapshot?
@@ -136,8 +139,10 @@ public actor SourceCoordinator {
   public nonisolated let updates: AsyncStream<SourceUpdate>
   private let continuation: AsyncStream<SourceUpdate>.Continuation
 
-  private var trackedSessions: [String: TrackedSession] = [:]
+  var trackedSessions: [String: TrackedSession] = [:]
   var trackedLiveSessions: [String: Int] = [:]
+  var codexMissingProcessCounts: [String: Int] = [:]
+  var lastCodexProcessCheckTime: Date = .distantPast
   private var eventsReader: JSONLTailReader?
   private var lastCcrPollTime: Date = .distantPast
   private var lastEmittedQuotas: [String: AccountQuota] = [:]
@@ -156,7 +161,7 @@ public actor SourceCoordinator {
     self.fileSystem = fileSystem
     self.directoryLister = directoryLister
     self.clock = clock
-    self.processTable = processTable
+    self.processTable = configuration.processTable ?? processTable
     self.ccrReader = CcrQuotaReader(databasePath: configuration.ccrDatabasePath)
 
     let (stream, continuation) = AsyncStream.makeStream(
@@ -201,6 +206,7 @@ public actor SourceCoordinator {
     }
     trackedSessions.removeAll()
     trackedLiveSessions.removeAll()
+    codexMissingProcessCounts.removeAll()
 
     eventsReader?.stop()
     eventsReader = nil
@@ -215,6 +221,7 @@ public actor SourceCoordinator {
     pollEvents()
     pollCcrQuotas(now: now)
     pollClaudeLive(now: now)
+    pollCodexProcesses(now: now)
   }
 
   private func pollSessions(now: Date) {
@@ -241,6 +248,9 @@ public actor SourceCoordinator {
       }
     }
     for path in toRemove {
+      if let tracked = trackedSessions[path], let id = tracked.snapshot?.id {
+        codexMissingProcessCounts.removeValue(forKey: id)
+      }
       trackedSessions.removeValue(forKey: path)
     }
 

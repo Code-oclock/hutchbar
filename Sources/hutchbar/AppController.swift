@@ -25,7 +25,10 @@ final class AppController {
     poller: QuotaPoller? = nil
   ) {
     self.settings = settings
-    let store = SessionStore(showFinished: settings.showFinished)
+    let store = SessionStore(
+      showFinished: settings.showFinished,
+      quietAfter: settings.quietAfterSeconds
+    )
     self.store = store
     self.scanner = scanner
 
@@ -64,6 +67,10 @@ final class AppController {
 
     settings.onShowFinishedChange = { [weak store] show in
       store?.showFinished = show
+    }
+
+    settings.onQuietAfterChange = { [weak store] quietAfter in
+      store?.quietAfter = quietAfter
     }
 
     TerminalJumper.pidLookup = { [weak store] session in

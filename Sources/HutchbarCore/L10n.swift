@@ -113,38 +113,23 @@ public enum L10n {
   // MARK: - Section & Card Titles
 
   public static func quotasTitle(language: Language? = nil) -> String {
-    switch language ?? currentLanguage() {
-    case .ru: return "Лимиты"
-    case .en: return "Quotas"
-    }
+    (language ?? currentLanguage()) == .ru ? "Лимиты" : "Quotas"
   }
 
   public static func spendingTitle(language: Language? = nil) -> String {
-    switch language ?? currentLanguage() {
-    case .ru: return "Расходы"
-    case .en: return "Spending"
-    }
+    (language ?? currentLanguage()) == .ru ? "Расходы" : "Spending"
   }
 
   public static func trendTitle(language: Language? = nil) -> String {
-    switch language ?? currentLanguage() {
-    case .ru: return "Динамика"
-    case .en: return "Trend"
-    }
+    (language ?? currentLanguage()) == .ru ? "Динамика" : "Trend"
   }
 
   public static func waitingTitle(language: Language? = nil) -> String {
-    switch language ?? currentLanguage() {
-    case .ru: return "Очередь"
-    case .en: return "Waiting for you"
-    }
+    (language ?? currentLanguage()) == .ru ? "Очередь" : "Waiting for you"
   }
 
   public static func workingTitle(language: Language? = nil) -> String {
-    switch language ?? currentLanguage() {
-    case .ru: return "В работе"
-    case .en: return "Working"
-    }
+    (language ?? currentLanguage()) == .ru ? "В работе" : "Working"
   }
 
   // MARK: - Reason Badges (Cause Labels)
@@ -407,17 +392,11 @@ public enum L10n {
   // MARK: - Empty States
 
   public static func emptySessions(language: Language? = nil) -> String {
-    switch language ?? currentLanguage() {
-    case .ru: return "Нет активных агентов"
-    case .en: return "No agent sessions yet"
-    }
+    (language ?? currentLanguage()) == .ru ? "Нет активных агентов" : "No agent sessions yet"
   }
 
   public static func emptyQuotas(language: Language? = nil) -> String {
-    switch language ?? currentLanguage() {
-    case .ru: return "Нет данных о лимитах"
-    case .en: return "No quota data"
-    }
+    (language ?? currentLanguage()) == .ru ? "Нет данных о лимитах" : "No quota data"
   }
 
   public static func emptySpending(language: Language? = nil) -> String {
@@ -487,5 +466,23 @@ public enum L10n {
   public static func codexLoginHint(language: Language? = nil) -> String {
     (language ?? currentLanguage()) == .ru
       ? "Войдите в Codex: codex login" : "Sign in to Codex: codex login"
+  }
+
+  // MARK: - Quiet Sessions
+
+  public static func quietSessionsAfter(language: Language? = nil) -> String {
+    (language ?? currentLanguage()) == .ru ? "Молчащие сессии через" : "Quiet sessions after"
+  }
+
+  public static func quietThresholdOption(minutes: Int, language: Language? = nil) -> String {
+    let isRu = (language ?? currentLanguage()) == .ru
+    switch minutes {
+    case 0: return isRu ? "никогда" : "never"
+    case 15: return isRu ? "15 мин" : "15 min"
+    case 30: return isRu ? "30 мин" : "30 min"
+    case 60: return isRu ? "60 мин" : "60 min"
+    case 120: return isRu ? "120 мин" : "120 min"
+    default: return isRu ? "\(minutes) мин" : "\(minutes) min"
+    }
   }
 }
