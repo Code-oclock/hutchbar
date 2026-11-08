@@ -8,7 +8,7 @@ Decisions (2026-11-08): the agents block answers "who waits for me" and "who wor
 - Quiet sessions are not in `waiting`, not in `waitingCount`, never trigger the attention pill or the menu bar counter. `SessionStore.quiet` lists them (oldest activity last); the panel shows one collapsed line «Ещё N молчат дольше часа — показать».
 - Any new activity (hook event, transcript record, live status `busy`) makes the session non-quiet again (its `waitingSince` restarts when it next waits).
 
-## 2. Dead processes
+## 2. Exited processes
 
 - Claude Code: the live registry (`~/.claude/sessions/<pid>.json`) already reports `finished` when the pid is gone; keep it.
 - Codex: every 10 s the coordinator checks non-finished Codex sessions that have a `cwd`: if no process named `codex` with the same resolved `cwd` exists for two consecutive checks, the session becomes `finished`. Uses the existing `ProcessTable` (no shelling out).
