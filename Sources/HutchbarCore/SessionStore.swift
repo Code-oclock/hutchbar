@@ -45,6 +45,15 @@ public final class SessionStore {
   /// Active process identifiers mapped by session key, kept outside SessionSnapshot.
   private var sessionPids: [SessionKey: Int] = [:]
 
+  /// Effective parent relationship discovered via process tree, overriding snapshot parent.
+  public private(set) var parentByChild: [SessionKey: SessionKey] = [:]
+
+  /// Ephemeral child processes discovered via process tree.
+  public private(set) var ephemeralChildren: [EphemeralChild] = []
+
+  /// Earliest observed start time for each session key.
+  private var sessionStartTimes: [SessionKey: Date] = [:]
+
   /// Availability status of data sources for UI indicators.
   public private(set) var sourceStatus: [SourceKind: Bool] = [:]
 
@@ -68,6 +77,7 @@ public final class SessionStore {
   public func waiting(now: Date = Date()) -> [SessionSnapshot] {
     sessions.values
       .filter { session in
+        guard !isChild(session) else { return false }
         guard session.state == .waitingForApproval || session.state == .waitingForInput else {
           return false
         }
@@ -102,6 +112,7 @@ public final class SessionStore {
     guard let quietAfter else { return [] }
     return sessions.values
       .filter { session in
+        guard !isChild(session) else { return false }
         guard session.state == .waitingForApproval || session.state == .waitingForInput else {
           return false
         }
@@ -198,6 +209,56 @@ public final class SessionStore {
     sessionPids[SessionKey(agent: agent, id: id)]
   }
 
+  /// Active process identifiers mapped by session key as 32-bit integers.
+  public var trackedPids: [SessionKey: Int32] {
+    sessionPids.reduce(into: [:]) { result, entry in
+      result[entry.key] = Int32(entry.value)
+    }
+  }
+
+  /// All session snapshots currently in the store.
+  public var allSessions: [SessionSnapshot] {
+    Array(sessions.values)
+  }
+
+  /// Start time for a session, if recorded.
+  public func startTime(for key: SessionKey) -> Date? {
+    sessionStartTimes[key]
+  }
+
+  /// Stores process nesting results from process tree inspection.
+  public func applyNesting(_ result: ProcessNestingResult) {
+    self.parentByChild = result.parentByChild
+    self.ephemeralChildren = result.ephemeral
+  }
+
+  /// Resolves the effective parent key for a session snapshot.
+  public func effectiveParentKey(for session: SessionSnapshot) -> SessionKey? {
+    if let overrideKey = parentByChild[session.sessionKey] {
+      return overrideKey
+    }
+    return session.parentKey
+  }
+
+  /// Resolves the effective parent key for a session key.
+  public func effectiveParentKey(for key: SessionKey) -> SessionKey? {
+    if let overrideKey = parentByChild[key] {
+      return overrideKey
+    }
+    return sessions[key]?.parentKey
+  }
+
+  /// Returns true if the session is considered a child in the hierarchy.
+  public func isChild(_ session: SessionSnapshot) -> Bool {
+    guard let parentKey = effectiveParentKey(for: session) else { return false }
+    guard parentKey != session.sessionKey else { return false }
+    return sessions[parentKey] != nil
+  }
+}
+
+// MARK: - Applying Updates
+
+extension SessionStore {
   /// Applies a data source update to the store.
   public func apply(_ update: SourceUpdate, now: Date = Date()) {
     switch update {
@@ -248,6 +309,11 @@ public final class SessionStore {
 
     let currentKeys = Set(sessions.keys)
     sessionPids = sessionPids.filter { currentKeys.contains($0.key) }
+    sessionStartTimes = sessionStartTimes.filter { currentKeys.contains($0.key) }
+    parentByChild = parentByChild.filter { child, parent in
+      currentKeys.contains(child) && currentKeys.contains(parent)
+    }
+    ephemeralChildren.removeAll { !currentKeys.contains($0.parentKey) }
   }
 
   /// Pure decision evaluation helper for the attention pill.
@@ -261,6 +327,11 @@ public final class SessionStore {
 
   private func applySessionUpdate(_ incoming: inout SessionSnapshot) {
     let key = incoming.sessionKey
+    if let existing = sessionStartTimes[key] {
+      sessionStartTimes[key] = min(existing, incoming.lastActivity)
+    } else {
+      sessionStartTimes[key] = incoming.waitingSince ?? incoming.lastActivity
+    }
     // If Claude Code, replay any pending hook events buffered before this session appeared.
     if incoming.agent == .claudeCode {
       let matching = pendingHookEvents.filter { $0.session == incoming.id }
@@ -331,6 +402,11 @@ extension SessionStore {
     cwd: String? = nil
   ) {
     let key = SessionKey(agent: .claudeCode, id: sessionId)
+    if let existing = sessionStartTimes[key] {
+      sessionStartTimes[key] = min(existing, at)
+    } else {
+      sessionStartTimes[key] = at
+    }
     let liveProjectName = cwd.map { URL(fileURLWithPath: $0).lastPathComponent } ?? ""
     if status != .finished {
       sessionPids[key] = pid

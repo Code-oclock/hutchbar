@@ -39,12 +39,6 @@ final class AppController {
       )
     self.poller = pollerInstance
 
-    MenuBarController.onPanelVisibilityChange = { [weak pollerInstance] visible in
-      Task {
-        await pollerInstance?.setPanelVisible(visible)
-      }
-    }
-
     let usage = UsageViewModel(period: settings.usagePeriod)
     usage.onPeriodChange = { [weak settings] period in
       settings?.usagePeriod = period
@@ -75,6 +69,15 @@ final class AppController {
 
     TerminalJumper.pidLookup = { [weak store] session in
       store?.pid(for: session.sessionKey)
+    }
+
+    MenuBarController.onPanelVisibilityChange = { [weak pollerInstance, weak self] visible in
+      Task {
+        await pollerInstance?.setPanelVisible(visible)
+      }
+      if visible {
+        self?.refreshNesting()
+      }
     }
 
     start()
@@ -121,6 +124,7 @@ final class AppController {
       MainActor.assumeIsolated {
         guard let self, !self.isStopped else { return }
         let now = Date()
+        self.refreshNesting(now: now)
         self.store.prune(now: now)
         self.attention.evaluate(
           now: now,
@@ -130,6 +134,17 @@ final class AppController {
     }
     RunLoop.main.add(scheduledTimer, forMode: .common)
     self.timer = scheduledTimer
+  }
+
+  /// Evaluates process tree nesting and applies results to the store.
+  public func refreshNesting(now: Date = Date()) {
+    let nesting = ProcessNesting.children(
+      sessions: store.allSessions,
+      sessionPids: store.trackedPids,
+      processes: DarwinProcessTable().allProcesses(),
+      now: now
+    )
+    store.applyNesting(nesting)
   }
 
   public func stop() {

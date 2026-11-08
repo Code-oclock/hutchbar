@@ -105,7 +105,7 @@ struct PanelView: View {
     .onAppear {
       isFocused = true
       if selectedSessionId == nil {
-        selectedSessionId = sortedSessions.first?.id
+        selectedSessionId = selectableSessions.first?.id
       }
     }
     .onDisappear {
@@ -118,9 +118,11 @@ struct PanelView: View {
     VStack(alignment: .leading, spacing: 10) {
       PanelHeaderView(usage: usage, onClose: closePanel)
 
-      if !sortedSessions.isEmpty {
+      let tree = store.agentTree(now: Date())
+      if !tree.isEmpty {
         PanelAgentsView(
-          sessions: sortedSessions,
+          tree: tree,
+          quietThresholdMinutes: quietThresholdMinutes,
           selectedSessionId: selectedSessionId,
           onSelect: { session in selectedSessionId = session.id },
           onJump: onJump
@@ -137,21 +139,30 @@ struct PanelView: View {
     .padding(12)
   }
 
-  private var visibleSessions: [SessionSnapshot] {
-    var sessions = store.waiting
-    sessions.append(contentsOf: store.working)
-    if store.showFinished {
-      sessions.append(contentsOf: store.finished)
+  private var quietThresholdMinutes: Int {
+    if let quietAfter = store.quietAfter {
+      return max(1, Int(quietAfter / 60.0))
     }
-    return sessions
+    return 60
   }
 
-  private var sortedSessions: [SessionSnapshot] {
-    PanelV2Logic.sortSessions(visibleSessions)
+  private var selectableSessions: [SessionSnapshot] {
+    let tree = store.agentTree(now: Date())
+    var result: [SessionSnapshot] = []
+    for node in tree.waiting {
+      if let session = node.session { result.append(session) }
+    }
+    for node in tree.working {
+      if let session = node.session { result.append(session) }
+    }
+    for node in tree.quiet {
+      if let session = node.session { result.append(session) }
+    }
+    return result
   }
 
   private func selectPrevious() {
-    let sessions = sortedSessions
+    let sessions = selectableSessions
     guard !sessions.isEmpty else { return }
     guard let selectedSessionId,
       let index = sessions.firstIndex(where: { $0.id == selectedSessionId })
@@ -165,7 +176,7 @@ struct PanelView: View {
   }
 
   private func selectNext() {
-    let sessions = sortedSessions
+    let sessions = selectableSessions
     guard !sessions.isEmpty else { return }
     guard let selectedSessionId,
       let index = sessions.firstIndex(where: { $0.id == selectedSessionId })
@@ -179,7 +190,7 @@ struct PanelView: View {
   }
 
   private func jumpToSelected() {
-    let sessions = sortedSessions
+    let sessions = selectableSessions
     guard let selectedSessionId,
       let session = sessions.first(where: { $0.id == selectedSessionId })
     else {
