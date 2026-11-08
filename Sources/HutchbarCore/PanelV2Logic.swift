@@ -167,14 +167,14 @@ public enum PanelV2Logic {
 
   // MARK: - Agent Names and Icons
 
-  /// Returns the display name for the agent provider ("Claude" / "Codex").
+  /// Returns the display name for the agent provider from the agent catalog.
   public static func agentName(for agent: AgentKind) -> String {
-    agent == .claudeCode ? "Claude" : "Codex"
+    agent.info.displayName
   }
 
-  /// Returns the SF Symbol name for the agent provider icon.
+  /// Returns the SF Symbol name for the agent provider icon from the agent catalog.
   public static func agentIcon(for agent: AgentKind) -> String {
-    agent == .claudeCode ? "asterisk" : "hexagon"
+    agent.info.symbol
   }
 
   // MARK: - Provider Spending Formatting

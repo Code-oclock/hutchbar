@@ -112,21 +112,10 @@ struct PanelChildRowView: View {
 
   @ViewBuilder
   private func ephemeralMark(for name: String) -> some View {
-    let lower = name.lowercased()
-    if lower == "agy" || lower == "gemini" {
-      Image(systemName: "diamond.fill")
+    if let agent = AgentKind.forExecutable(name) {
+      Image(systemName: agent.info.symbol)
         .font(.system(size: 11, weight: .bold))
-        .foregroundStyle(Color.purple)
-        .frame(width: 14)
-    } else if lower == "codex" {
-      Image(systemName: "hexagon")
-        .font(.system(size: 11, weight: .bold))
-        .foregroundStyle(Color.blue)
-        .frame(width: 14)
-    } else if lower == "claude" {
-      Image(systemName: "asterisk")
-        .font(.system(size: 11, weight: .bold))
-        .foregroundStyle(Color.orange)
+        .foregroundStyle(agent.info.color.color)
         .frame(width: 14)
     } else {
       Image(systemName: "circle.fill")

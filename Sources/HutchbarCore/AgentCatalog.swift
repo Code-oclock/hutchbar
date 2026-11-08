@@ -9,6 +9,13 @@ public struct AgentInfo: Equatable, Sendable {
   public let color: PanelColorToken
   /// Executable name of the agent's CLI process.
   public let executable: String
+
+  public init(displayName: String, symbol: String, color: PanelColorToken, executable: String) {
+    self.displayName = displayName
+    self.symbol = symbol
+    self.color = color
+    self.executable = executable
+  }
 }
 
 extension AgentKind {
@@ -36,6 +43,8 @@ extension AgentKind {
 
   /// The agent whose CLI has this executable name, if any.
   public static func forExecutable(_ name: String) -> AgentKind? {
-    allCases.first { $0.info.executable == name }
+    // Gemini CLI (`gemini`) is a different product from Antigravity (`agy`): no mapping.
+    let lower = name.lowercased()
+    return allCases.first { $0.info.executable == lower }
   }
 }
