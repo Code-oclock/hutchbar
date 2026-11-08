@@ -36,6 +36,31 @@ public enum PillThreshold: Int, CaseIterable, Identifiable, Sendable {
   }
 }
 
+/// Predefined quiet session duration thresholds in minutes.
+public enum QuietThreshold: Int, CaseIterable, Identifiable, Sendable {
+  case fifteen = 15
+  case thirty = 30
+  case sixty = 60
+  case twoHours = 120
+  case never = 0
+
+  public var id: Int { rawValue }
+
+  public var seconds: TimeInterval? {
+    switch self {
+    case .fifteen: return 15 * 60
+    case .thirty: return 30 * 60
+    case .sixty: return 60 * 60
+    case .twoHours: return 120 * 60
+    case .never: return nil
+    }
+  }
+
+  public var title: String {
+    L10n.quietThresholdOption(minutes: rawValue)
+  }
+}
+
 extension SourceKind {
   public var displayName: String {
     switch self {
@@ -63,6 +88,7 @@ extension SourceKind {
 public final class Settings {
   private enum Keys {
     static let pillThreshold = "hutchbar.pillThreshold"
+    static let quietAfterMinutes = "hutchbar.quietAfterMinutes"
     static let showFinished = "hutchbar.showFinished"
     static let notifications = "hutchbar.notifications"
     static let enabledSources = "hutchbar.enabledSources"
@@ -73,6 +99,7 @@ public final class Settings {
   private let userDefaults: UserDefaults
 
   public var onShowFinishedChange: ((Bool) -> Void)?
+  public var onQuietAfterChange: ((TimeInterval?) -> Void)?
   public var onEnabledSourcesChange: ((Set<SourceKind>) -> Void)?
   public var onUsagePeriodChange: ((UsagePeriod) -> Void)?
 
@@ -98,6 +125,24 @@ public final class Settings {
 
   public var pillThresholdSeconds: TimeInterval? {
     pillThreshold.seconds
+  }
+
+  public var quietThreshold: QuietThreshold {
+    didSet {
+      userDefaults.set(quietThreshold.rawValue, forKey: Keys.quietAfterMinutes)
+      onQuietAfterChange?(quietThreshold.seconds)
+    }
+  }
+
+  public var quietAfterMinutes: Int {
+    get { quietThreshold.rawValue }
+    set {
+      quietThreshold = QuietThreshold(rawValue: newValue) ?? (newValue == 0 ? .never : .sixty)
+    }
+  }
+
+  public var quietAfterSeconds: TimeInterval? {
+    quietThreshold.seconds
   }
 
   public var showFinished: Bool {
@@ -164,6 +209,14 @@ public final class Settings {
       self.pillThreshold = .sixty
     }
 
+    if let storedQuiet = userDefaults.object(forKey: Keys.quietAfterMinutes) as? Int,
+      let threshold = QuietThreshold(rawValue: storedQuiet)
+    {
+      self.quietThreshold = threshold
+    } else {
+      self.quietThreshold = .sixty
+    }
+
     self.showFinished = userDefaults.bool(forKey: Keys.showFinished)
     self.notifications = userDefaults.bool(forKey: Keys.notifications)
 
@@ -222,6 +275,11 @@ struct SettingsView: View {
       }
 
       Section("Sessions") {
+        Picker(L10n.quietSessionsAfter(), selection: $settings.quietThreshold) {
+          ForEach(QuietThreshold.allCases) { threshold in
+            Text(threshold.title).tag(threshold)
+          }
+        }
         Toggle("Show finished sessions", isOn: $settings.showFinished)
       }
 

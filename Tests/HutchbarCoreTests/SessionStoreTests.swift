@@ -29,7 +29,7 @@ private let baseTestDate = Date(timeIntervalSince1970: 1_794_081_600)
   store.apply(.session(inputSession), now: baseTestDate)
   store.apply(.session(approvalSession), now: baseTestDate)
 
-  let waiting = store.waiting
+  let waiting = store.waiting(now: baseTestDate)
   #expect(waiting.count == 2)
   let first = try #require(waiting.first)
   let last = try #require(waiting.last)
@@ -60,7 +60,7 @@ private let baseTestDate = Date(timeIntervalSince1970: 1_794_081_600)
   store.apply(.session(newerApproval), now: baseTestDate)
   store.apply(.session(olderApproval), now: baseTestDate)
 
-  let waiting = store.waiting
+  let waiting = store.waiting(now: baseTestDate)
   #expect(waiting.count == 2)
   let first = try #require(waiting.first)
   let last = try #require(waiting.last)
@@ -142,7 +142,7 @@ private let baseTestDate = Date(timeIntervalSince1970: 1_794_081_600)
   store.apply(.session(runSession), now: baseTestDate)
   store.apply(.session(finSession), now: baseTestDate)
 
-  #expect(store.waitingCount == 2)
+  #expect(store.waitingCount(now: baseTestDate) == 2)
 }
 
 @MainActor

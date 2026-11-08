@@ -149,6 +149,20 @@ public enum CodexSessionParser {
 
     let projectName = project ?? pendingProjectName ?? snapshot?.projectName ?? ""
     let resolvedCwd = payload?.cwd ?? pendingCwd ?? snapshot?.cwd
+
+    let isChild = payload?.source?.isChild == true
+    let parentThreadId = payload?.parentThreadId?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let sessionIdField = payload?.sessionId?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let parentCandidate: String? = {
+      if let parentThreadId, !parentThreadId.isEmpty { return parentThreadId }
+      if let sessionIdField, !sessionIdField.isEmpty { return sessionIdField }
+      return nil
+    }()
+    let hasParent = isChild && parentCandidate != nil && parentCandidate != resolvedId
+    let parentKey: SessionKey? =
+      hasParent ? parentCandidate.map { SessionKey(agent: .codex, id: $0) } : nil
+    let childKind: ChildKind? = hasParent ? .subagent : nil
+
     if var existing = snapshot {
       existing.projectName = projectName
       if let resolvedCwd, !resolvedCwd.isEmpty {
@@ -156,6 +170,10 @@ public enum CodexSessionParser {
       }
       if activityDate >= existing.lastActivity {
         existing.lastActivity = activityDate
+      }
+      if hasParent {
+        existing.parentKey = parentKey
+        existing.childKind = childKind
       }
       if existing.id != resolvedId {
         existing = SessionSnapshot(
@@ -166,7 +184,9 @@ public enum CodexSessionParser {
           title: existing.title,
           lastActivity: existing.lastActivity,
           waitingSince: existing.waitingSince,
-          cwd: existing.cwd
+          cwd: existing.cwd,
+          parentKey: existing.parentKey,
+          childKind: existing.childKind
         )
       }
       return (existing, true)
@@ -180,7 +200,9 @@ public enum CodexSessionParser {
       title: nil,
       lastActivity: activityDate,
       waitingSince: activityDate,
-      cwd: resolvedCwd
+      cwd: resolvedCwd,
+      parentKey: parentKey,
+      childKind: childKind
     )
     return (createdSnapshot, true)
   }
@@ -332,111 +354,6 @@ public enum CodexSessionParser {
 
     let finalSnapshot = applyInactivityTimeout(to: snapshot, now: now)
     return CodexParseResult(snapshot: finalSnapshot, quota: latestQuota, skippedLines: skippedLines)
-  }
-}
-
-// MARK: - Decodable Schema (Privacy-Preserving)
-
-private struct CodexRecord: Decodable {
-  let type: String?
-  let timestamp: FlexibleTimestamp?
-  let payload: CodexPayload?
-}
-
-private struct CodexPayload: Decodable {
-  let id: String?
-  let sessionId: String?
-  let cwd: String?
-  let timestamp: FlexibleTimestamp?
-  let type: String?
-  let rateLimits: CodexRateLimits?
-
-  enum CodingKeys: String, CodingKey {
-    case id
-    case sessionId = "session_id"
-    case cwd
-    case timestamp
-    case type
-    case rateLimits = "rate_limits"
-  }
-}
-
-private struct CodexRateLimits: Decodable {
-  let planType: String?
-  let primary: CodexRateLimitWindow?
-  let secondary: CodexRateLimitWindow?
-
-  enum CodingKeys: String, CodingKey {
-    case planType = "plan_type"
-    case primary
-    case secondary
-  }
-}
-
-private struct CodexRateLimitWindow: Decodable {
-  let usedPercent: Double?
-  let windowMinutes: Int?
-  let resetsAt: FlexibleDate?
-
-  enum CodingKeys: String, CodingKey {
-    case usedPercent = "used_percent"
-    case windowMinutes = "window_minutes"
-    case resetsAt = "resets_at"
-  }
-}
-
-private struct FlexibleTimestamp: Decodable {
-  let string: String?
-  let date: Date?
-
-  init(from decoder: Decoder) throws {
-    let container = try decoder.singleValueContainer()
-    if container.decodeNil() {
-      string = nil
-      date = nil
-      return
-    }
-    if let str = try? container.decode(String.self) {
-      string = str
-      date = CodexSessionParser.parseDate(str)
-      return
-    }
-    if let number = try? container.decode(Double.self) {
-      string = nil
-      if number > 100_000_000_000 {
-        date = Date(timeIntervalSince1970: number / 1000.0)
-      } else {
-        date = Date(timeIntervalSince1970: number)
-      }
-      return
-    }
-    string = nil
-    date = nil
-  }
-}
-
-private struct FlexibleDate: Decodable {
-  let date: Date?
-
-  init(from decoder: Decoder) throws {
-    let container = try decoder.singleValueContainer()
-    if container.decodeNil() {
-      date = nil
-      return
-    }
-    if let seconds = try? container.decode(Double.self) {
-      date = Date(timeIntervalSince1970: seconds)
-      return
-    }
-    if let string = try? container.decode(String.self) {
-      if let seconds = Double(string) {
-        date = Date(timeIntervalSince1970: seconds)
-        return
-      }
-      date = CodexSessionParser.parseDate(string)
-      return
-    }
-    date = nil
   }
 }
 

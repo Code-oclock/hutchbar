@@ -37,6 +37,14 @@ enum PanelRenderer {
     await scanner.stop()
     let usage = UsageViewModel(ledger: ledger)
 
+    let nesting = ProcessNesting.children(
+      sessions: store.allSessions,
+      sessionPids: store.trackedPids,
+      processes: DarwinProcessTable().allProcesses(),
+      now: Date()
+    )
+    store.applyNesting(nesting)
+
     let statusMsg =
       "waiting=\(store.waiting.count) working=\(store.working.count) quotas=\(store.quotas.count)\n"
     FileHandle.standardError.write(Data(statusMsg.utf8))

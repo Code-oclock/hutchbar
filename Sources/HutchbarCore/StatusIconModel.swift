@@ -83,6 +83,14 @@ public struct StatusIconModel: Equatable, Sendable {
     self.init(quotas: Array(quotas.values), waitingSessions: waitingSessions, now: now)
   }
 
+  @MainActor
+  public init(
+    store: SessionStore,
+    now: Date = Date()
+  ) {
+    self.init(quotas: store.quotas, waitingSessions: store.waiting(now: now), now: now)
+  }
+
   // MARK: - Evaluation Helpers
 
   public static func calculateConstrainedRemaining(

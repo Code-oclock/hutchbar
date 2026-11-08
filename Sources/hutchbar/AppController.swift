@@ -25,7 +25,10 @@ final class AppController {
     poller: QuotaPoller? = nil
   ) {
     self.settings = settings
-    let store = SessionStore(showFinished: settings.showFinished)
+    let store = SessionStore(
+      showFinished: settings.showFinished,
+      quietAfter: settings.quietAfterSeconds
+    )
     self.store = store
     self.scanner = scanner
 
@@ -35,12 +38,6 @@ final class AppController {
         targets: QuotaPoller.defaultTargets(appVersion: HutchbarVersion.current)
       )
     self.poller = pollerInstance
-
-    MenuBarController.onPanelVisibilityChange = { [weak pollerInstance] visible in
-      Task {
-        await pollerInstance?.setPanelVisible(visible)
-      }
-    }
 
     let usage = UsageViewModel(period: settings.usagePeriod)
     usage.onPeriodChange = { [weak settings] period in
@@ -66,8 +63,21 @@ final class AppController {
       store?.showFinished = show
     }
 
+    settings.onQuietAfterChange = { [weak store] quietAfter in
+      store?.quietAfter = quietAfter
+    }
+
     TerminalJumper.pidLookup = { [weak store] session in
       store?.pid(for: session.sessionKey)
+    }
+
+    MenuBarController.onPanelVisibilityChange = { [weak pollerInstance, weak self] visible in
+      Task {
+        await pollerInstance?.setPanelVisible(visible)
+      }
+      if visible {
+        self?.refreshNesting()
+      }
     }
 
     start()
@@ -114,6 +124,7 @@ final class AppController {
       MainActor.assumeIsolated {
         guard let self, !self.isStopped else { return }
         let now = Date()
+        self.refreshNesting(now: now)
         self.store.prune(now: now)
         self.attention.evaluate(
           now: now,
@@ -123,6 +134,17 @@ final class AppController {
     }
     RunLoop.main.add(scheduledTimer, forMode: .common)
     self.timer = scheduledTimer
+  }
+
+  /// Evaluates process tree nesting and applies results to the store.
+  public func refreshNesting(now: Date = Date()) {
+    let nesting = ProcessNesting.children(
+      sessions: store.allSessions,
+      sessionPids: store.trackedPids,
+      processes: DarwinProcessTable().allProcesses(),
+      now: now
+    )
+    store.applyNesting(nesting)
   }
 
   public func stop() {

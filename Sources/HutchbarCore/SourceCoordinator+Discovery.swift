@@ -1,6 +1,27 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
+final class ClaudeSubagentThrottler: @unchecked Sendable {
+  private let lock = NSLock()
+  private var lastScanTime: Date = .distantPast
+
+  func shouldScan(now: Date, interval: TimeInterval = 5.0) -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    guard now.timeIntervalSince(lastScanTime) >= interval else { return false }
+    lastScanTime = now
+    return true
+  }
+
+  func reset() {
+    lock.lock()
+    defer { lock.unlock() }
+    lastScanTime = .distantPast
+  }
+}
+
+let subagentThrottler = ClaudeSubagentThrottler()
+
 // File discovery for SourceCoordinator, kept separate to keep the actor body small.
 extension SourceCoordinator {
   func enumerateClaudeFiles(
@@ -18,6 +39,7 @@ extension SourceCoordinator {
         discovered[file.path] = (file, .claudeCode)
       }
     }
+    pollClaudeSubagents(now: clock.now())
   }
 
   func enumerateCodexFiles(
@@ -119,6 +141,81 @@ extension SourceCoordinator {
     }
     for sessionId in disappeared {
       trackedLiveSessions.removeValue(forKey: sessionId)
+    }
+  }
+
+  func pollClaudeSubagents(now: Date) {
+    guard configuration.enabledSources.contains(.claudeTranscripts) else { return }
+    guard subagentThrottler.shouldScan(now: now, interval: 5.0) else { return }
+
+    let root = (configuration.claudeProjectsRoot as NSString).expandingTildeInPath
+    let subagents = ClaudeSubagentScanner.scanProjects(
+      projectsRoot: root,
+      directoryLister: directoryLister,
+      fileSystem: fileSystem,
+      now: now
+    )
+    for subagent in subagents {
+      yieldUpdate(.session(subagent))
+    }
+  }
+
+  func resolveCwd(_ path: String) -> String {
+    let expanded = (path as NSString).expandingTildeInPath
+    var resolved = URL(fileURLWithPath: expanded).resolvingSymlinksInPath().path
+    while resolved.count > 1 && resolved.hasSuffix("/") {
+      resolved.removeLast()
+    }
+    return resolved
+  }
+
+  func pollCodexProcesses(now: Date) {
+    guard configuration.enabledSources.contains(.codexSessions) else { return }
+    guard
+      lastCodexProcessCheckTime == .distantPast
+        || now.timeIntervalSince(lastCodexProcessCheckTime) >= 10.0
+    else {
+      return
+    }
+    lastCodexProcessCheckTime = now
+
+    let activeCodexSessions = trackedSessions.values.filter { tracked in
+      guard tracked.agent == .codex, let snapshot = tracked.snapshot else { return false }
+      guard snapshot.state != .finished else { return false }
+      guard let cwd = snapshot.cwd, !cwd.isEmpty else { return false }
+      return true
+    }
+
+    guard !activeCodexSessions.isEmpty else { return }
+
+    let processes = processTable.allProcesses()
+
+    for tracked in activeCodexSessions {
+      guard let snapshot = tracked.snapshot, let cwd = snapshot.cwd else { continue }
+      let targetPath = resolveCwd(cwd)
+
+      let hasProcess = processes.contains { proc in
+        let baseName = URL(fileURLWithPath: proc.executableName).lastPathComponent
+        guard baseName == "codex" else { return false }
+        guard let procCwd = proc.cwd, !procCwd.isEmpty else { return false }
+        return resolveCwd(procCwd) == targetPath
+      }
+
+      let sessionId = snapshot.id
+      if hasProcess {
+        codexMissingProcessCounts[sessionId] = 0
+      } else {
+        let count = (codexMissingProcessCounts[sessionId] ?? 0) + 1
+        codexMissingProcessCounts[sessionId] = count
+        if count >= 2 {
+          var finishedSnapshot = snapshot
+          finishedSnapshot.state = .finished
+          finishedSnapshot.waitingSince = nil
+          tracked.snapshot = finishedSnapshot
+          yieldUpdate(.session(finishedSnapshot))
+          codexMissingProcessCounts.removeValue(forKey: sessionId)
+        }
+      }
     }
   }
 }

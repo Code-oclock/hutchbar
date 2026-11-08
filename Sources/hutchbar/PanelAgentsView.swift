@@ -2,22 +2,54 @@
 import HutchbarCore
 import SwiftUI
 
-/// Full-width agents block displaying active sessions sorted by attention priority.
+/// Full-width agents block displaying active sessions organized into waiting,
+/// working, and quiet sections with nested children.
 struct PanelAgentsView: View {
-  let sessions: [SessionSnapshot]
+  let tree: AgentTree
+  let quietThresholdMinutes: Int
   let selectedSessionId: String?
   let onSelect: (SessionSnapshot) -> Void
   let onJump: (SessionSnapshot) -> Void
 
+  private var isQuietExpandedState = SwiftUI.State<Bool>(initialValue: false)
+
+  private var isQuietExpanded: Bool {
+    get { isQuietExpandedState.wrappedValue }
+    nonmutating set { isQuietExpandedState.wrappedValue = newValue }
+  }
+
+  init(
+    tree: AgentTree,
+    quietThresholdMinutes: Int = 60,
+    selectedSessionId: String?,
+    onSelect: @escaping (SessionSnapshot) -> Void,
+    onJump: @escaping (SessionSnapshot) -> Void
+  ) {
+    self.tree = tree
+    self.quietThresholdMinutes = quietThresholdMinutes
+    self.selectedSessionId = selectedSessionId
+    self.onSelect = onSelect
+    self.onJump = onJump
+  }
+
   var body: some View {
-    VStack(alignment: .leading, spacing: 4) {
-      ForEach(sessions) { session in
-        PanelAgentRowView(
-          session: session,
-          isSelected: selectedSessionId == session.id,
-          onSelect: { onSelect(session) },
-          onJump: { onJump(session) }
+    VStack(alignment: .leading, spacing: 8) {
+      if !tree.waiting.isEmpty {
+        sectionBlock(
+          title: L10n.waitingSectionTitle(),
+          nodes: tree.waiting
         )
+      }
+
+      if !tree.working.isEmpty {
+        sectionBlock(
+          title: L10n.workingSectionTitle(),
+          nodes: tree.working
+        )
+      }
+
+      if !tree.quiet.isEmpty {
+        quietSection
       }
     }
     .padding(6)
@@ -29,6 +61,106 @@ struct PanelAgentsView: View {
       RoundedRectangle(cornerRadius: 10)
         .stroke(Color.primary.opacity(0.08), lineWidth: 1)
     )
+  }
+
+  @ViewBuilder
+  private func sectionBlock(title: String, nodes: [AgentNode]) -> some View {
+    VStack(alignment: .leading, spacing: 3) {
+      Text(title)
+        .font(.caption2)
+        .fontWeight(.semibold)
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 6)
+        .padding(.top, 2)
+
+      ForEach(nodes) { node in
+        PanelRootNodeView(
+          node: node,
+          selectedSessionId: selectedSessionId,
+          onSelect: onSelect,
+          onJump: onJump
+        )
+      }
+    }
+  }
+
+  private var quietSection: some View {
+    VStack(alignment: .leading, spacing: 3) {
+      Button(action: { isQuietExpanded.toggle() }) {
+        HStack {
+          Text(
+            L10n.quietRow(
+              count: tree.quiet.count,
+              thresholdMinutes: quietThresholdMinutes,
+              isExpanded: isQuietExpanded
+            )
+          )
+          .font(.caption)
+          .foregroundStyle(.secondary)
+
+          Spacer()
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+
+      if isQuietExpanded {
+        ForEach(tree.quiet) { node in
+          PanelRootNodeView(
+            node: node,
+            selectedSessionId: selectedSessionId,
+            onSelect: onSelect,
+            onJump: onJump
+          )
+        }
+      }
+    }
+  }
+}
+
+/// Interactive row representing a root session with its nested child hierarchy.
+private struct PanelRootNodeView: View {
+  let node: AgentNode
+  let selectedSessionId: String?
+  let onSelect: (SessionSnapshot) -> Void
+  let onJump: (SessionSnapshot) -> Void
+
+  init(
+    node: AgentNode,
+    selectedSessionId: String?,
+    onSelect: @escaping (SessionSnapshot) -> Void,
+    onJump: @escaping (SessionSnapshot) -> Void
+  ) {
+    self.node = node
+    self.selectedSessionId = selectedSessionId
+    self.onSelect = onSelect
+    self.onJump = onJump
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 2) {
+      if let session = node.session {
+        PanelAgentRowView(
+          session: session,
+          isSelected: selectedSessionId == session.id,
+          onSelect: { onSelect(session) },
+          onJump: { onJump(session) }
+        )
+
+        if !node.children.isEmpty {
+          ForEach(node.children) { childNode in
+            PanelChildNodeView(
+              node: childNode,
+              rootSession: session,
+              level: 1,
+              onJumpRoot: { onJump(session) }
+            )
+          }
+        }
+      }
+    }
   }
 }
 

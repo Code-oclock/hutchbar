@@ -7,6 +7,12 @@ public enum AgentKind: String, CaseIterable, Sendable, Codable {
   case codex
 }
 
+/// What kind of child relationship produces a nested session.
+public enum ChildKind: String, CaseIterable, Sendable, Codable, Equatable {
+  case subagent
+  case process
+}
+
 /// Content-free view of one agent session. Never holds prompts, code or tool output.
 public struct SessionSnapshot: Equatable, Sendable, Identifiable {
   public let id: String
@@ -22,10 +28,22 @@ public struct SessionSnapshot: Equatable, Sendable, Identifiable {
   /// Full working directory, kept in memory only to locate the agent process.
   /// Never displayed, logged or persisted (see docs/specs/panel-v2.md, section 3).
   public var cwd: String?
+  /// Parent session key if this session is a child, otherwise nil.
+  public var parentKey: SessionKey?
+  /// Nature of the child relationship (subagent or process).
+  public var childKind: ChildKind?
 
   public init(
-    id: String, agent: AgentKind, state: SessionState, projectName: String, title: String? = nil,
-    lastActivity: Date, waitingSince: Date? = nil, cwd: String? = nil
+    id: String,
+    agent: AgentKind,
+    state: SessionState,
+    projectName: String,
+    title: String? = nil,
+    lastActivity: Date,
+    waitingSince: Date? = nil,
+    cwd: String? = nil,
+    parentKey: SessionKey? = nil,
+    childKind: ChildKind? = nil
   ) {
     self.id = id
     self.agent = agent
@@ -35,6 +53,8 @@ public struct SessionSnapshot: Equatable, Sendable, Identifiable {
     self.lastActivity = lastActivity
     self.waitingSince = waitingSince
     self.cwd = cwd
+    self.parentKey = parentKey
+    self.childKind = childKind
   }
 }
 

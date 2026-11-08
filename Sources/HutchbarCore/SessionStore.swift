@@ -30,6 +30,9 @@ public final class SessionStore {
   /// Whether finished sessions should be exposed via `finished`.
   public var showFinished: Bool
 
+  /// Duration after which waiting sessions are considered quiet (nil = never).
+  public var quietAfter: TimeInterval?
+
   /// Registered sessions keyed by `(agent, id)`.
   private var sessions: [SessionKey: SessionSnapshot] = [:]
 
@@ -41,6 +44,15 @@ public final class SessionStore {
 
   /// Active process identifiers mapped by session key, kept outside SessionSnapshot.
   private var sessionPids: [SessionKey: Int] = [:]
+
+  /// Effective parent relationship discovered via process tree, overriding snapshot parent.
+  public private(set) var parentByChild: [SessionKey: SessionKey] = [:]
+
+  /// Ephemeral child processes discovered via process tree.
+  public private(set) var ephemeralChildren: [EphemeralChild] = []
+
+  /// Earliest observed start time for each session key.
+  private var sessionStartTimes: [SessionKey: Date] = [:]
 
   /// Availability status of data sources for UI indicators.
   public private(set) var sourceStatus: [SourceKind: Bool] = [:]
@@ -54,15 +66,28 @@ public final class SessionStore {
   /// Age after which finished sessions are pruned (24 hours).
   public static let finishedSessionTtl: TimeInterval = 24 * 60 * 60
 
-  public init(showFinished: Bool = false) {
+  public init(showFinished: Bool = false, quietAfter: TimeInterval? = 3600) {
     self.showFinished = showFinished
+    self.quietAfter = quietAfter
   }
 
-  /// Sessions waiting for user action. `waitingForApproval` comes before `waitingForInput`,
+  /// Sessions waiting for user action that are not quiet at `now`.
+  /// `waitingForApproval` comes before `waitingForInput`,
   /// sorted by `waitingSince` ascending (longest waiting first).
-  public var waiting: [SessionSnapshot] {
+  public func waiting(now: Date = Date()) -> [SessionSnapshot] {
     sessions.values
-      .filter { $0.state == .waitingForApproval || $0.state == .waitingForInput }
+      .filter { session in
+        guard !isChild(session) else { return false }
+        guard session.state == .waitingForApproval || session.state == .waitingForInput else {
+          return false
+        }
+        if let quietAfter, let waitingSince = session.waitingSince {
+          if now.timeIntervalSince(waitingSince) > quietAfter {
+            return false
+          }
+        }
+        return true
+      }
       .sorted { lhs, rhs in
         if lhs.state != rhs.state {
           return lhs.state == .waitingForApproval
@@ -74,6 +99,37 @@ public final class SessionStore {
         }
         return lhs.id < rhs.id
       }
+  }
+
+  /// Total count of sessions currently waiting for human intervention that are not quiet at `now`.
+  public func waitingCount(now: Date = Date()) -> Int {
+    waiting(now: now).count
+  }
+
+  /// Sessions waiting for user action whose `waitingSince` is older than `quietAfter` at `now`.
+  /// Sorted by `lastActivity` descending (most recent first).
+  public func quiet(now: Date = Date()) -> [SessionSnapshot] {
+    guard let quietAfter else { return [] }
+    return sessions.values
+      .filter { session in
+        guard !isChild(session) else { return false }
+        guard session.state == .waitingForApproval || session.state == .waitingForInput else {
+          return false
+        }
+        guard let waitingSince = session.waitingSince else { return false }
+        return now.timeIntervalSince(waitingSince) > quietAfter
+      }
+      .sorted { lhs, rhs in
+        if lhs.lastActivity != rhs.lastActivity {
+          return lhs.lastActivity > rhs.lastActivity
+        }
+        return lhs.id < rhs.id
+      }
+  }
+
+  /// Sessions waiting for user action (non-quiet).
+  public var waiting: [SessionSnapshot] {
+    waiting(now: Date())
   }
 
   /// Actively working (running) sessions, sorted by `lastActivity` descending (most active first).
@@ -102,9 +158,14 @@ public final class SessionStore {
       }
   }
 
-  /// Total count of sessions currently waiting for human intervention.
+  /// Total count of sessions currently waiting for human intervention (non-quiet).
   public var waitingCount: Int {
-    waiting.count
+    waitingCount(now: Date())
+  }
+
+  /// Sessions currently waiting for human intervention that are quiet.
+  public var quiet: [SessionSnapshot] {
+    quiet(now: Date())
   }
 
   /// Highest 5-hour quota usage percent across all accounts, or `nil` if no 5-hour quota is known.
@@ -148,6 +209,56 @@ public final class SessionStore {
     sessionPids[SessionKey(agent: agent, id: id)]
   }
 
+  /// Active process identifiers mapped by session key as 32-bit integers.
+  public var trackedPids: [SessionKey: Int32] {
+    sessionPids.reduce(into: [:]) { result, entry in
+      result[entry.key] = Int32(entry.value)
+    }
+  }
+
+  /// All session snapshots currently in the store.
+  public var allSessions: [SessionSnapshot] {
+    Array(sessions.values)
+  }
+
+  /// Start time for a session, if recorded.
+  public func startTime(for key: SessionKey) -> Date? {
+    sessionStartTimes[key]
+  }
+
+  /// Stores process nesting results from process tree inspection.
+  public func applyNesting(_ result: ProcessNestingResult) {
+    self.parentByChild = result.parentByChild
+    self.ephemeralChildren = result.ephemeral
+  }
+
+  /// Resolves the effective parent key for a session snapshot.
+  public func effectiveParentKey(for session: SessionSnapshot) -> SessionKey? {
+    if let overrideKey = parentByChild[session.sessionKey] {
+      return overrideKey
+    }
+    return session.parentKey
+  }
+
+  /// Resolves the effective parent key for a session key.
+  public func effectiveParentKey(for key: SessionKey) -> SessionKey? {
+    if let overrideKey = parentByChild[key] {
+      return overrideKey
+    }
+    return sessions[key]?.parentKey
+  }
+
+  /// Returns true if the session is considered a child in the hierarchy.
+  public func isChild(_ session: SessionSnapshot) -> Bool {
+    guard let parentKey = effectiveParentKey(for: session) else { return false }
+    guard parentKey != session.sessionKey else { return false }
+    return sessions[parentKey] != nil
+  }
+}
+
+// MARK: - Applying Updates
+
+extension SessionStore {
   /// Applies a data source update to the store.
   public func apply(_ update: SourceUpdate, now: Date = Date()) {
     switch update {
@@ -198,6 +309,11 @@ public final class SessionStore {
 
     let currentKeys = Set(sessions.keys)
     sessionPids = sessionPids.filter { currentKeys.contains($0.key) }
+    sessionStartTimes = sessionStartTimes.filter { currentKeys.contains($0.key) }
+    parentByChild = parentByChild.filter { child, parent in
+      currentKeys.contains(child) && currentKeys.contains(parent)
+    }
+    ephemeralChildren.removeAll { !currentKeys.contains($0.parentKey) }
   }
 
   /// Pure decision evaluation helper for the attention pill.
@@ -206,11 +322,16 @@ public final class SessionStore {
     threshold: TimeInterval?,
     state: AttentionPolicy.State
   ) -> AttentionPolicy.Decision {
-    AttentionPolicy.decide(waiting: waiting, now: now, threshold: threshold, state: state)
+    AttentionPolicy.decide(waiting: waiting(now: now), now: now, threshold: threshold, state: state)
   }
 
   private func applySessionUpdate(_ incoming: inout SessionSnapshot) {
     let key = incoming.sessionKey
+    if let existing = sessionStartTimes[key] {
+      sessionStartTimes[key] = min(existing, incoming.lastActivity)
+    } else {
+      sessionStartTimes[key] = incoming.waitingSince ?? incoming.lastActivity
+    }
     // If Claude Code, replay any pending hook events buffered before this session appeared.
     if incoming.agent == .claudeCode {
       let matching = pendingHookEvents.filter { $0.session == incoming.id }
@@ -281,6 +402,11 @@ extension SessionStore {
     cwd: String? = nil
   ) {
     let key = SessionKey(agent: .claudeCode, id: sessionId)
+    if let existing = sessionStartTimes[key] {
+      sessionStartTimes[key] = min(existing, at)
+    } else {
+      sessionStartTimes[key] = at
+    }
     let liveProjectName = cwd.map { URL(fileURLWithPath: $0).lastPathComponent } ?? ""
     if status != .finished {
       sessionPids[key] = pid
@@ -350,128 +476,5 @@ extension SessionStore {
       existing.lastActivity = max(existing.lastActivity, at)
       sessions[key] = existing
     }
-  }
-}
-
-/// Pure attention pill evaluation policy.
-public struct AttentionPolicy: Sendable {
-  /// Default interval before re-alerting for the exact same session (5 minutes).
-  public static let repeatInterval: TimeInterval = 5 * 60
-
-  /// Attention pill display history state.
-  public struct State: Equatable, Sendable {
-    public var lastShownKey: SessionKey?
-    public var lastShownAt: Date?
-    public var lastShownTimes: [SessionKey: Date]
-
-    public var lastShownSessionId: String? {
-      lastShownKey?.id
-    }
-
-    public init(
-      lastShownKey: SessionKey? = nil,
-      lastShownAt: Date? = nil,
-      lastShownTimes: [SessionKey: Date] = [:]
-    ) {
-      self.lastShownKey = lastShownKey
-      self.lastShownAt = lastShownAt
-      if lastShownTimes.isEmpty, let lastShownKey, let lastShownAt {
-        self.lastShownTimes = [lastShownKey: lastShownAt]
-      } else {
-        self.lastShownTimes = lastShownTimes
-      }
-    }
-
-    public init(
-      lastShownSessionId: String?,
-      lastShownAt: Date?,
-      agent: AgentKind = .claudeCode
-    ) {
-      let key = lastShownSessionId.map { SessionKey(agent: agent, id: $0) }
-      self.init(lastShownKey: key, lastShownAt: lastShownAt)
-    }
-  }
-
-  /// Result of evaluating the attention pill policy.
-  public struct Decision: Equatable, Sendable {
-    public let sessionToShow: SessionSnapshot?
-    public let newState: State
-
-    public var session: SessionSnapshot? { sessionToShow }
-    public var state: State { newState }
-
-    public init(sessionToShow: SessionSnapshot?, newState: State) {
-      self.sessionToShow = sessionToShow
-      self.newState = newState
-    }
-
-    public init(session: SessionSnapshot?, state: State) {
-      self.sessionToShow = session
-      self.newState = state
-    }
-  }
-
-  /// Evaluates which waiting session to show in the attention pill, if any.
-  public static func decide(
-    waiting: [SessionSnapshot],
-    now: Date,
-    threshold: TimeInterval?,
-    state: State
-  ) -> Decision {
-    guard let threshold, threshold >= 0 else {
-      return Decision(sessionToShow: nil, newState: state)
-    }
-
-    let eligible = waiting.filter { session in
-      guard let waitingSince = session.waitingSince else { return false }
-      let waited = now.timeIntervalSince(waitingSince)
-      guard waited >= threshold else { return false }
-
-      if let previousShownAt = state.lastShownTimes[session.sessionKey] {
-        let elapsed = now.timeIntervalSince(previousShownAt)
-        if elapsed < repeatInterval {
-          return false
-        }
-      }
-      return true
-    }
-
-    guard
-      let chosen = eligible.min(by: { lhs, rhs in
-        let lhsSince = lhs.waitingSince ?? .distantFuture
-        let rhsSince = rhs.waitingSince ?? .distantFuture
-        if lhsSince != rhsSince {
-          return lhsSince < rhsSince
-        }
-        if lhs.state != rhs.state {
-          return lhs.state == .waitingForApproval
-        }
-        return lhs.id < rhs.id
-      })
-    else {
-      return Decision(sessionToShow: nil, newState: state)
-    }
-
-    var updatedTimes = state.lastShownTimes
-    updatedTimes[chosen.sessionKey] = now
-
-    let maxRetention = now.addingTimeInterval(-24 * 60 * 60)
-    updatedTimes = updatedTimes.filter { _, date in date >= maxRetention }
-
-    let nextState = State(
-      lastShownKey: chosen.sessionKey,
-      lastShownAt: now,
-      lastShownTimes: updatedTimes
-    )
-    return Decision(sessionToShow: chosen, newState: nextState)
-  }
-
-  public static func evaluate(
-    waiting: [SessionSnapshot],
-    now: Date,
-    threshold: TimeInterval?,
-    state: State
-  ) -> Decision {
-    decide(waiting: waiting, now: now, threshold: threshold, state: state)
   }
 }
