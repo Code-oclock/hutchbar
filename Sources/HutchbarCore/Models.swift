@@ -145,4 +145,6 @@ public enum SourceKind: String, CaseIterable, Sendable, Codable {
   case codexSessions
   case ccrQuotas
   case claudeLive
+  case claudeUsage
+  case codexUsage
 }

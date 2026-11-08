@@ -156,6 +156,9 @@ public final class SessionStore {
     case .hookEvent(let event):
       applyHookEventUpdate(event)
     case .quota(let quota):
+      if let existing = quotas[quota.id], quota.observedAt < existing.observedAt {
+        break
+      }
       quotas[quota.id] = quota
     case .liveStatus(let sessionId, let pid, let status, let at, let cwd):
       applyLiveStatusUpdate(sessionId: sessionId, pid: pid, status: status, at: at, cwd: cwd)
