@@ -1,6 +1,27 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
+final class ClaudeSubagentThrottler: @unchecked Sendable {
+  private let lock = NSLock()
+  private var lastScanTime: Date = .distantPast
+
+  func shouldScan(now: Date, interval: TimeInterval = 5.0) -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    guard now.timeIntervalSince(lastScanTime) >= interval else { return false }
+    lastScanTime = now
+    return true
+  }
+
+  func reset() {
+    lock.lock()
+    defer { lock.unlock() }
+    lastScanTime = .distantPast
+  }
+}
+
+let subagentThrottler = ClaudeSubagentThrottler()
+
 // File discovery for SourceCoordinator, kept separate to keep the actor body small.
 extension SourceCoordinator {
   func enumerateClaudeFiles(
@@ -18,6 +39,7 @@ extension SourceCoordinator {
         discovered[file.path] = (file, .claudeCode)
       }
     }
+    pollClaudeSubagents(now: clock.now())
   }
 
   func enumerateCodexFiles(
@@ -119,6 +141,22 @@ extension SourceCoordinator {
     }
     for sessionId in disappeared {
       trackedLiveSessions.removeValue(forKey: sessionId)
+    }
+  }
+
+  func pollClaudeSubagents(now: Date) {
+    guard configuration.enabledSources.contains(.claudeTranscripts) else { return }
+    guard subagentThrottler.shouldScan(now: now, interval: 5.0) else { return }
+
+    let root = (configuration.claudeProjectsRoot as NSString).expandingTildeInPath
+    let subagents = ClaudeSubagentScanner.scanProjects(
+      projectsRoot: root,
+      directoryLister: directoryLister,
+      fileSystem: fileSystem,
+      now: now
+    )
+    for subagent in subagents {
+      yieldUpdate(.session(subagent))
     }
   }
 }
