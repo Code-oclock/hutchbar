@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import AppKit
+import Darwin
+import Foundation
 import HutchbarCore
+import MachO
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -40,6 +43,15 @@ struct HutchbarApp {
       print(HutchbarVersion.current)
       return
     }
+    if arguments.contains("--hook") {
+      runHook()
+      exit(0)
+    }
+    if arguments.contains("--print-hooks") {
+      let executable = currentExecutablePath()
+      print(generateHooksConfiguration(binaryPath: executable))
+      return
+    }
     if arguments.contains("--selftest") {
       // Touch core models and the real filesystem adapter without starting AppKit.
       do {
@@ -56,7 +68,7 @@ struct HutchbarApp {
       }
     }
     guard arguments.isEmpty else {
-      fputs("Usage: hutchbar [--selftest | --version]\n", stderr)
+      fputs("Usage: hutchbar [--hook | --print-hooks | --selftest | --version]\n", stderr)
       exit(64)
     }
     let app = NSApplication.shared
@@ -64,5 +76,45 @@ struct HutchbarApp {
     let delegate = AppDelegate()
     app.delegate = delegate
     withExtendedLifetime(delegate) { app.run() }
+  }
+
+  private static func runHook() {
+    let maxBytes = 65_536
+    var stdinData = Data()
+    let handle = FileHandle.standardInput
+    while stdinData.count <= maxBytes {
+      let chunk = handle.readData(ofLength: 4096)
+      if chunk.isEmpty { break }
+      stdinData.append(chunk)
+    }
+    guard stdinData.count <= maxBytes,
+      let event = makeHookEvent(stdin: stdinData, now: Date())
+    else {
+      return
+    }
+    _ = HookEventWriter.write(event: event, to: HookEventWriter.defaultEventsPath)
+  }
+
+  private static func currentExecutablePath() -> String {
+    var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
+    var size = UInt32(buffer.count)
+    if _NSGetExecutablePath(&buffer, &size) == 0 {
+      var realBuffer = [CChar](repeating: 0, count: Int(PATH_MAX))
+      if realpath(buffer, &realBuffer) != nil {
+        let resolved = realBuffer.withUnsafeBufferPointer { ptr in
+          ptr.baseAddress.map(String.init(cString:)) ?? ""
+        }
+        if !resolved.isEmpty { return resolved }
+      }
+      let fallback = buffer.withUnsafeBufferPointer { ptr in
+        ptr.baseAddress.map(String.init(cString:)) ?? ""
+      }
+      if !fallback.isEmpty { return fallback }
+    }
+    if let bundlePath = Bundle.main.executablePath, !bundlePath.isEmpty {
+      return bundlePath
+    }
+    let arg0 = CommandLine.arguments.first ?? "hutchbar"
+    return URL(fileURLWithPath: arg0).standardized.path
   }
 }
