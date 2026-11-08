@@ -7,6 +7,8 @@ public enum PanelColorToken: String, Sendable, Equatable, CaseIterable {
   case blue
   case red
   case green
+  case purple
+  case teal
   case secondary
 }
 
@@ -17,12 +19,7 @@ public enum PanelV2Logic {
 
   /// Returns the semantic color token for the given agent provider mark.
   public static func agentColor(for agent: AgentKind) -> PanelColorToken {
-    switch agent {
-    case .claudeCode:
-      return .orange
-    case .codex:
-      return .blue
-    }
+    agent.info.color
   }
 
   /// Returns the semantic color token for a session's current state.
@@ -170,14 +167,14 @@ public enum PanelV2Logic {
 
   // MARK: - Agent Names and Icons
 
-  /// Returns the display name for the agent provider ("Claude" / "Codex").
+  /// Returns the display name for the agent provider from the agent catalog.
   public static func agentName(for agent: AgentKind) -> String {
-    agent == .claudeCode ? "Claude" : "Codex"
+    agent.info.displayName
   }
 
-  /// Returns the SF Symbol name for the agent provider icon.
+  /// Returns the SF Symbol name for the agent provider icon from the agent catalog.
   public static func agentIcon(for agent: AgentKind) -> String {
-    agent == .claudeCode ? "asterisk" : "hexagon"
+    agent.info.symbol
   }
 
   // MARK: - Provider Spending Formatting

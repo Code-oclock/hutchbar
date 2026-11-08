@@ -5,6 +5,14 @@ import Foundation
 public enum AgentKind: String, CaseIterable, Sendable, Codable {
   case claudeCode
   case codex
+  /// Google Antigravity CLI (`agy`).
+  case antigravity
+  /// Qwen Code (`qwen`).
+  case qwen
+  /// OpenCode (`opencode`).
+  case opencode
+  /// GitHub Copilot CLI (`copilot`).
+  case copilot
 }
 
 /// What kind of child relationship produces a nested session.
@@ -167,4 +175,5 @@ public enum SourceKind: String, CaseIterable, Sendable, Codable {
   case claudeLive
   case claudeUsage
   case codexUsage
+  case antigravityUsage
 }

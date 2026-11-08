@@ -55,6 +55,7 @@ public struct AccountQuotaPresentation: Equatable, Sendable, Identifiable {
   public let isCurrent: Bool
   public let observedAt: Date
   public let windows: [WindowPresentation]
+  public let windowGroups: [QuotaWindowGroupPresentation]
   public let asOfText: String?
 
   public var isStale: Bool { asOfText != nil }
@@ -68,6 +69,7 @@ public struct AccountQuotaPresentation: Equatable, Sendable, Identifiable {
     isCurrent: Bool = false,
     observedAt: Date,
     windows: [WindowPresentation],
+    windowGroups: [QuotaWindowGroupPresentation] = [],
     asOfText: String? = nil
   ) {
     self.id = id
@@ -77,6 +79,11 @@ public struct AccountQuotaPresentation: Equatable, Sendable, Identifiable {
     self.isCurrent = isCurrent
     self.observedAt = observedAt
     self.windows = windows
+    if windowGroups.isEmpty && !windows.isEmpty {
+      self.windowGroups = [QuotaWindowGroupPresentation(scope: nil, windows: windows)]
+    } else {
+      self.windowGroups = windowGroups
+    }
     self.asOfText = asOfText
   }
 }
@@ -195,25 +202,21 @@ public struct QuotaPresentation: Equatable, Sendable {
   public static func makeWindowPresentation(
     window: QuotaWindow,
     now: Date,
-    language: L10n.Language
+    language: L10n.Language,
+    includeScopeInLabel: Bool = true
   ) -> WindowPresentation {
     let label = formatLabel(
       windowMinutes: window.windowMinutes,
-      scope: window.scope,
+      scope: includeScopeInLabel ? window.scope : nil,
       language: language
     )
 
     if let resetsAt = window.resetsAt, resetsAt <= now {
       return WindowPresentation(
-        windowMinutes: window.windowMinutes,
-        label: label,
-        remainingPercent: 100.0,
+        windowMinutes: window.windowMinutes, label: label, remainingPercent: 100.0,
         remainingText: L10n.remainingPercent(100, language: language),
         resetsInText: L10n.updatesOnNextRequest(language: language),
-        resetsAt: resetsAt,
-        pace: nil,
-        isStale: false,
-        level: .normal
+        resetsAt: resetsAt, pace: nil, isStale: false, level: .normal
       )
     }
 
@@ -232,15 +235,10 @@ public struct QuotaPresentation: Equatable, Sendable {
 
     if isNotStarted {
       return WindowPresentation(
-        windowMinutes: window.windowMinutes,
-        label: label,
-        remainingPercent: 100.0,
+        windowMinutes: window.windowMinutes, label: label, remainingPercent: 100.0,
         remainingText: L10n.remainingPercent(100, language: language),
         resetsInText: L10n.notStarted(language: language),
-        resetsAt: window.resetsAt,
-        pace: nil,
-        isStale: false,
-        level: .normal
+        resetsAt: window.resetsAt, pace: nil, isStale: false, level: .normal
       )
     }
 
@@ -262,15 +260,9 @@ public struct QuotaPresentation: Equatable, Sendable {
     }
 
     return WindowPresentation(
-      windowMinutes: window.windowMinutes,
-      label: label,
-      remainingPercent: remaining,
-      remainingText: remText,
-      resetsInText: resetsText,
-      resetsAt: window.resetsAt,
-      pace: pace,
-      isStale: false,
-      level: level
+      windowMinutes: window.windowMinutes, label: label, remainingPercent: remaining,
+      remainingText: remText, resetsInText: resetsText, resetsAt: window.resetsAt,
+      pace: pace, isStale: false, level: level
     )
   }
 }
@@ -463,6 +455,11 @@ extension QuotaPresentation {
       let windows = sortedWindows.map { window in
         makeWindowPresentation(window: window, now: now, language: language)
       }
+      let groups = buildWindowGroups(
+        rawWindows: cluster.numbersRecord.windows,
+        now: now,
+        language: language
+      )
 
       result.append(
         AccountQuotaPresentation(
@@ -473,6 +470,7 @@ extension QuotaPresentation {
           isCurrent: isCurrent,
           observedAt: cluster.numbersRecord.observedAt,
           windows: windows,
+          windowGroups: groups,
           asOfText: asOfText
         )
       )

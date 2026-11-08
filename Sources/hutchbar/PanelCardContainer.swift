@@ -13,6 +13,10 @@ extension PanelColorToken {
       return .red
     case .green:
       return .green
+    case .purple:
+      return .purple
+    case .teal:
+      return .teal
     case .secondary:
       return .secondary
     }

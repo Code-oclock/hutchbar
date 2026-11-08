@@ -269,12 +269,7 @@ private struct PanelAgentRowView: View {
   }
 
   private var agentIcon: String {
-    switch session.agent {
-    case .claudeCode:
-      return "asterisk"
-    case .codex:
-      return "hexagon"
-    }
+    session.agent.info.symbol
   }
 
   private var agentColor: Color {
@@ -339,7 +334,7 @@ private struct PanelAgentRowView: View {
   private var accessibilityDescription: String {
     var parts = [
       session.projectName,
-      session.agent == .claudeCode ? "Claude Code" : "Codex",
+      session.agent.info.displayName,
       sessionStateDescription(session.state),
     ]
     if let title = session.title, !title.isEmpty {

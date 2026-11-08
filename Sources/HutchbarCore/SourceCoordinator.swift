@@ -312,19 +312,13 @@ public actor SourceCoordinator {
             tracked.lastQuota = quota
             yieldUpdate(.quota(quota))
           }
+        case .antigravity, .qwen, .opencode, .copilot:
+          // Tracked files are discovered only for Claude Code and Codex.
+          break
         }
       } else if let current = tracked.snapshot {
-        let updated: SessionSnapshot?
-        switch tracked.agent {
-        case .claudeCode:
-          updated = claudeParser.applyInactivity(to: current, now: now)
-        case .codex:
-          let codexUpdated: SessionSnapshot = CodexSessionParser.applyInactivityRule(
-            to: current,
-            now: now
-          )
-          updated = codexUpdated
-        }
+        let updated = Self.applyInactivity(
+          agent: tracked.agent, to: current, now: now, claudeParser: claudeParser)
         if let updated, updated != current {
           tracked.snapshot = updated
           yieldUpdate(.session(updated))
@@ -387,5 +381,23 @@ public actor SourceCoordinator {
   func yieldUpdate(_ update: SourceUpdate) {
     guard !isStopped else { return }
     continuation.yield(update)
+  }
+}
+
+extension SourceCoordinator {
+  /// The inactivity rule of the agent whose transcript went quiet; nil when it has none.
+  static func applyInactivity(
+    agent: AgentKind, to current: SessionSnapshot, now: Date,
+    claudeParser: ClaudeTranscriptParser
+  ) -> SessionSnapshot? {
+    switch agent {
+    case .claudeCode:
+      return claudeParser.applyInactivity(to: current, now: now)
+    case .codex:
+      let updated: SessionSnapshot = CodexSessionParser.applyInactivityRule(to: current, now: now)
+      return updated
+    case .antigravity, .qwen, .opencode, .copilot:
+      return nil
+    }
   }
 }

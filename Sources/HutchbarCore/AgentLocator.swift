@@ -208,12 +208,7 @@ public struct AgentLocator: Sendable {
 
   public static func isAgentProcess(executableName: String, agent: AgentKind) -> Bool {
     let base = URL(fileURLWithPath: executableName).lastPathComponent
-    switch agent {
-    case .claudeCode:
-      return base == "claude"
-    case .codex:
-      return base == "codex"
-    }
+    return base == agent.info.executable
   }
 
   public static func locate(

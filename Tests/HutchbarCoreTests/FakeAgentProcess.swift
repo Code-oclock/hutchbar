@@ -14,13 +14,19 @@ final class FakeAgentProcessRunner: AgentProcessRunner, @unchecked Sendable {
 
   private let lock = NSLock()
   private let replies: [Reply]
+  private let initialLines: [String]?
   private let launchError: AgentProcessError?
   private var specsStorage: [AgentProcessSpec] = []
   private var sentStorage: [String] = []
   private var closedCount = 0
 
-  init(replies: [Reply], launchError: AgentProcessError? = nil) {
+  init(
+    replies: [Reply] = [],
+    initialLines: [String]? = nil,
+    launchError: AgentProcessError? = nil
+  ) {
     self.replies = replies
+    self.initialLines = initialLines
     self.launchError = launchError
   }
 
@@ -48,10 +54,18 @@ final class FakeAgentProcessRunner: AgentProcessRunner, @unchecked Sendable {
   private final class Session: AgentProcessSession, @unchecked Sendable {
     private let runner: FakeAgentProcessRunner
     private let lock = NSLock()
-    private var pending: [String] = []
+    private var pending: [String]
+    private let hasInitial: Bool
 
     init(runner: FakeAgentProcessRunner) {
       self.runner = runner
+      if let initial = runner.initialLines {
+        self.pending = initial
+        self.hasInitial = true
+      } else {
+        self.pending = []
+        self.hasInitial = false
+      }
     }
 
     func send(_ line: String) async throws {
@@ -59,12 +73,23 @@ final class FakeAgentProcessRunner: AgentProcessRunner, @unchecked Sendable {
       lock.withLock { pending.append(contentsOf: lines) }
     }
 
-    /// Returns queued lines; when none are queued the scripted process "hangs",
-    /// which the fake reports as a timeout so probes exercise that path.
+    /// Returns queued lines; when none are queued and no initial lines were configured,
+    /// the scripted process "hangs", which the fake reports as a timeout so probes exercise that path.
+    /// If initial lines were configured, exhaustion indicates stdout closed (returns nil).
     func nextLine() async throws -> String? {
-      let next: String? = lock.withLock { pending.isEmpty ? nil : pending.removeFirst() }
-      guard let next else { throw AgentProcessError.timeout }
-      return next
+      let (next, initialConfigured): (String?, Bool) = lock.withLock {
+        if pending.isEmpty {
+          return (nil, hasInitial)
+        }
+        return (pending.removeFirst(), hasInitial)
+      }
+      if let next {
+        return next
+      }
+      if initialConfigured {
+        return nil
+      }
+      throw AgentProcessError.timeout
     }
 
     func close() async {

@@ -38,11 +38,12 @@ public actor UsageScanner {
   public let cacheFilePath: String
   public let claudeProjectsRoot: String
   public let codexSessionsRoot: String
+  public let qwenUsageRoot: String
   public let rescanInterval: TimeInterval
   public let cutoffDays: Int
 
   private let fileSystem: any TailFileSystem
-  private let directoryLister: any DirectoryLister
+  let directoryLister: any DirectoryLister
   private let clock: any TailClock
   private let calendar: Calendar
 
@@ -60,6 +61,7 @@ public actor UsageScanner {
     cacheFilePath: String = UsageScanner.defaultCacheFilePath,
     claudeProjectsRoot: String = SourceCoordinator.Configuration.defaultClaudeProjectsRoot,
     codexSessionsRoot: String = SourceCoordinator.Configuration.defaultCodexSessionsRoot,
+    qwenUsageRoot: String = UsageScanner.defaultQwenUsageRoot,
     fileSystem: any TailFileSystem = LocalTailFileSystem(),
     directoryLister: any DirectoryLister = LocalDirectoryLister(),
     clock: any TailClock = SystemTailClock(),
@@ -70,6 +72,7 @@ public actor UsageScanner {
     self.cacheFilePath = cacheFilePath
     self.claudeProjectsRoot = claudeProjectsRoot
     self.codexSessionsRoot = codexSessionsRoot
+    self.qwenUsageRoot = qwenUsageRoot
     self.fileSystem = fileSystem
     self.directoryLister = directoryLister
     self.clock = clock
@@ -130,44 +133,16 @@ public actor UsageScanner {
 
     let claudeFiles = discoverClaudeFiles(cutoff: cutoff)
     let codexFiles = discoverCodexFiles(cutoff: cutoff, now: now)
+    let qwenFiles = discoverQwenFiles(cutoff: cutoff, now: now)
 
     var cacheModified = cacheNeedsRewrite
     cacheNeedsRewrite = false
     var activePaths = Set<String>()
 
-    for file in claudeFiles {
-      activePaths.insert(file.path)
-      let mtime = file.modificationDate.timeIntervalSince1970
-      if let cached = cache.entries[file.path], cached.mtime == mtime {
-        continue
-      }
-      if let (size, events) = readFileAndParse(path: file.path, agent: .claudeCode) {
-        cache.entries[file.path] = CachedFileUsage(
-          path: file.path,
-          size: size,
-          mtime: mtime,
-          events: events
-        )
-        cacheModified = true
-      }
-    }
-
-    for file in codexFiles {
-      activePaths.insert(file.path)
-      let mtime = file.modificationDate.timeIntervalSince1970
-      if let cached = cache.entries[file.path], cached.mtime == mtime {
-        continue
-      }
-      if let (size, events) = readFileAndParse(path: file.path, agent: .codex) {
-        cache.entries[file.path] = CachedFileUsage(
-          path: file.path,
-          size: size,
-          mtime: mtime,
-          events: events
-        )
-        cacheModified = true
-      }
-    }
+    recordFiles(
+      claudeFiles, agent: .claudeCode, activePaths: &activePaths, cacheModified: &cacheModified)
+    recordFiles(codexFiles, agent: .codex, activePaths: &activePaths, cacheModified: &cacheModified)
+    recordFiles(qwenFiles, agent: .qwen, activePaths: &activePaths, cacheModified: &cacheModified)
 
     let existingPaths = Array(cache.entries.keys)
     for path in existingPaths where !activePaths.contains(path) {
@@ -190,6 +165,30 @@ public actor UsageScanner {
       continuation.yield(ledger)
     }
     return ledger
+  }
+
+  private func recordFiles(
+    _ files: [FileMetadata],
+    agent: AgentKind,
+    activePaths: inout Set<String>,
+    cacheModified: inout Bool
+  ) {
+    for file in files {
+      activePaths.insert(file.path)
+      let mtime = file.modificationDate.timeIntervalSince1970
+      if let cached = cache.entries[file.path], cached.mtime == mtime {
+        continue
+      }
+      if let (size, events) = readFileAndParse(path: file.path, agent: agent) {
+        cache.entries[file.path] = CachedFileUsage(
+          path: file.path,
+          size: size,
+          mtime: mtime,
+          events: events
+        )
+        cacheModified = true
+      }
+    }
   }
 
   // MARK: - Discovery
@@ -300,17 +299,7 @@ public actor UsageScanner {
       guard let text = String(data: data, encoding: .utf8) else { return nil }
       let lines = text.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
 
-      let events: [UsageEvent]
-      switch agent {
-      case .claudeCode:
-        var seenMessageIds = Set<String>()
-        events = parseClaudeUsage(lines: lines, seenMessageIds: &seenMessageIds, calendar: calendar)
-      case .codex:
-        var state = CodexUsageState()
-        events = parseCodexUsage(lines: lines, state: &state, calendar: calendar)
-      }
-
-      return (size, events)
+      return (size, Self.parseUsageEvents(agent: agent, lines: lines, calendar: calendar))
     } catch {
       return nil
     }
@@ -381,6 +370,27 @@ public actor UsageScanner {
 
     if Darwin.rename(tempPath, resolved) != 0 {
       Darwin.unlink(tempPath)
+    }
+  }
+}
+
+extension UsageScanner {
+  /// Usage events of one transcript file; agents without file transcripts yield none.
+  static func parseUsageEvents(agent: AgentKind, lines: [String], calendar: Calendar)
+    -> [UsageEvent]
+  {
+    switch agent {
+    case .claudeCode:
+      var seenMessageIds = Set<String>()
+      return parseClaudeUsage(lines: lines, seenMessageIds: &seenMessageIds, calendar: calendar)
+    case .codex:
+      var state = CodexUsageState()
+      return parseCodexUsage(lines: lines, state: &state, calendar: calendar)
+    case .qwen:
+      var seenIds = Set<String>()
+      return parseQwenUsage(lines: lines, seenIds: &seenIds, calendar: calendar)
+    case .antigravity, .opencode, .copilot:
+      return []
     }
   }
 }

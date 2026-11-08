@@ -288,4 +288,72 @@ struct PanelSpendingTrendLogicTests {
     #expect(labelsMiddle.middle?.isCurrent == true)
     #expect(labelsMiddle.trailing.text == "30")
   }
+
+}
+
+extension PanelSpendingTrendLogicTests {
+  @Test func panelV2_agentSpendingRows_threeAgentsWithCatalogSymbolsAndPrice() {
+    let ruLocale = Locale(identifier: "ru_RU")
+    let tokens: [AgentKind: TokenUsage] = [
+      .claudeCode: TokenUsage(
+        input: 10_000_000, output: 0, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0),
+      .codex: TokenUsage(
+        input: 5_000_000, output: 0, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0),
+      .qwen: TokenUsage(
+        input: 2_000_000, output: 0, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0),
+      .antigravity: .zero,
+    ]
+    let costs: [AgentKind: Double] = [
+      .claudeCode: 15.0,
+      .codex: 8.0,
+    ]
+    let unknown: [AgentKind: Int] = [
+      .claudeCode: 0,
+      .codex: 0,
+      .qwen: 2_000_000,
+    ]
+
+    let rows = PanelV2Logic.agentSpendingRows(
+      tokensByProvider: tokens,
+      costByProvider: costs,
+      unknownTokensByProvider: unknown,
+      locale: ruLocale,
+      language: .ru
+    )
+
+    // Antigravity has 0 tokens -> not shown
+    #expect(rows.count == 3)
+    #expect(!rows.contains { $0.agent == .antigravity })
+
+    // Claude with price
+    guard let claudeRow = rows.first(where: { $0.agent == .claudeCode }) else {
+      Issue.record("Claude row missing")
+      return
+    }
+    #expect(claudeRow.name == AgentKind.claudeCode.info.displayName)
+    #expect(claudeRow.icon == AgentKind.claudeCode.info.symbol)
+    #expect(claudeRow.colorToken == AgentKind.claudeCode.info.color)
+    #expect(claudeRow.costText == "$15,00")
+
+    // Codex with price
+    guard let codexRow = rows.first(where: { $0.agent == .codex }) else {
+      Issue.record("Codex row missing")
+      return
+    }
+    #expect(codexRow.name == AgentKind.codex.info.displayName)
+    #expect(codexRow.icon == AgentKind.codex.info.symbol)
+    #expect(codexRow.colorToken == AgentKind.codex.info.color)
+    #expect(codexRow.costText == "$8,00")
+
+    // Qwen without price -> "—"
+    guard let qwenRow = rows.first(where: { $0.agent == .qwen }) else {
+      Issue.record("Qwen row missing")
+      return
+    }
+    #expect(qwenRow.name == AgentKind.qwen.info.displayName)
+    #expect(qwenRow.icon == AgentKind.qwen.info.symbol)
+    #expect(qwenRow.colorToken == AgentKind.qwen.info.color)
+    #expect(qwenRow.costText == "—")
+    #expect(qwenRow.costNote == nil)
+  }
 }

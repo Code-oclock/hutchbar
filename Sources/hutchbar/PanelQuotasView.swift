@@ -2,7 +2,7 @@
 import HutchbarCore
 import SwiftUI
 
-/// Two-column layout presenting quota utilization cards for Claude and Codex.
+/// Two-column layout presenting quota utilization cards for all active providers.
 struct PanelQuotasView: View {
   let presentation: QuotaPresentation
 
@@ -24,19 +24,29 @@ struct PanelQuotasView: View {
         .padding(.vertical, 8)
       }
     } else {
+      let columns = presentation.cardColumns
       HStack(alignment: .top, spacing: 10) {
-        if let claudeCard = presentation.card(for: .claudeCode) {
-          ProviderQuotaCardView(card: claudeCard)
+        VStack(spacing: 10) {
+          ForEach(columns.left) { card in
+            ProviderQuotaCardView(card: card)
+          }
         }
-        if let codexCard = presentation.card(for: .codex) {
-          ProviderQuotaCardView(card: codexCard)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+
+        if !columns.right.isEmpty {
+          VStack(spacing: 10) {
+            ForEach(columns.right) { card in
+              ProviderQuotaCardView(card: card)
+            }
+          }
+          .frame(maxWidth: .infinity, alignment: .topLeading)
         }
       }
     }
   }
 }
 
-/// A single quota card for an agent provider (Claude or Codex).
+/// A single quota card for an agent provider.
 private struct ProviderQuotaCardView: View {
   let card: ProviderQuotaCard
 
@@ -76,12 +86,7 @@ private struct ProviderQuotaCardView: View {
   }
 
   private var agentIcon: String {
-    switch card.agent {
-    case .claudeCode:
-      return "asterisk"
-    case .codex:
-      return "hexagon"
-    }
+    card.agent.info.symbol
   }
 
   private var agentColor: Color {
@@ -89,16 +94,11 @@ private struct ProviderQuotaCardView: View {
   }
 
   private var providerTitle: String {
-    switch card.agent {
-    case .claudeCode:
-      return "Claude"
-    case .codex:
-      return "Codex"
-    }
+    card.agent.info.displayName
   }
 }
 
-/// A single account block showing account information and rate limit windows.
+/// A single account block showing account information and rate limit windows grouped by scope.
 private struct AccountQuotaBlockView: View {
   let account: AccountQuotaPresentation
 
@@ -110,8 +110,27 @@ private struct AccountQuotaBlockView: View {
     VStack(alignment: .leading, spacing: 6) {
       accountHeader
 
+      VStack(alignment: .leading, spacing: 6) {
+        ForEach(account.windowGroups) { group in
+          windowGroupSection(group)
+        }
+      }
+    }
+  }
+
+  @ViewBuilder
+  private func windowGroupSection(_ group: QuotaWindowGroupPresentation) -> some View {
+    VStack(alignment: .leading, spacing: 4) {
+      if let scope = group.scope, !scope.isEmpty {
+        Text(scope)
+          .font(.caption2)
+          .fontWeight(.medium)
+          .foregroundStyle(.secondary)
+          .padding(.top, 2)
+      }
+
       VStack(spacing: 6) {
-        ForEach(account.windows) { window in
+        ForEach(group.windows) { window in
           QuotaWindowRowView(window: window)
         }
       }
