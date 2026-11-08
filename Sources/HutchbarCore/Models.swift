@@ -67,13 +67,29 @@ public struct QuotaWindow: Equatable, Sendable {
   public let windowMinutes: Int
   /// 0...100.
   public let usedPercent: Double
+  /// nil when the window has not started yet (nothing used in it).
   public let resetsAt: Date?
+  /// nil for the general window, otherwise the model family it limits ("Opus", "Sonnet").
+  public let scope: String?
 
-  public init(windowMinutes: Int, usedPercent: Double, resetsAt: Date?) {
+  public init(windowMinutes: Int, usedPercent: Double, resetsAt: Date?, scope: String? = nil) {
     self.windowMinutes = windowMinutes
     self.usedPercent = usedPercent
     self.resetsAt = resetsAt
+    self.scope = scope
   }
+}
+
+/// Where a quota reading came from (see docs/specs/limits-v3.md).
+public enum QuotaSource: String, CaseIterable, Sendable, Codable {
+  /// Asked the agent itself (`claude` get_usage, `codex app-server`).
+  case agentCLI
+  /// A reading the agent wrote into its own session log.
+  case sessionLog
+  /// The ccr gateway's quota table.
+  case ccr
+  /// The Claude desktop app's usage history.
+  case claudeApp
 }
 
 /// Quota of one account at the moment it was observed.
@@ -83,12 +99,23 @@ public struct AccountQuota: Equatable, Sendable, Identifiable {
   public let accountName: String
   public let windows: [QuotaWindow]
   public let observedAt: Date
+  public let source: QuotaSource
+  /// Subscription as the source names it ("pro", "max", "plus"), if known.
+  public let plan: String?
+  /// Free limit resets available (Codex), if known.
+  public let resetCredits: Int?
 
-  public init(agent: AgentKind, accountName: String, windows: [QuotaWindow], observedAt: Date) {
+  public init(
+    agent: AgentKind, accountName: String, windows: [QuotaWindow], observedAt: Date,
+    source: QuotaSource = .sessionLog, plan: String? = nil, resetCredits: Int? = nil
+  ) {
     self.agent = agent
     self.accountName = accountName
     self.windows = windows
     self.observedAt = observedAt
+    self.source = source
+    self.plan = plan
+    self.resetCredits = resetCredits
   }
 }
 

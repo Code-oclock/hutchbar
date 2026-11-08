@@ -56,6 +56,13 @@ struct HutchbarApp {
       }
       RunLoop.main.run()
     }
+    if arguments.contains("--probe-limits") {
+      Task {
+        await probeLimits()
+        exit(0)
+      }
+      RunLoop.main.run()
+    }
     if arguments.contains("--selftest") {
       // Touch core models and the real filesystem adapter without starting AppKit.
       do {
@@ -72,7 +79,9 @@ struct HutchbarApp {
       }
     }
     guard arguments.isEmpty else {
-      fputs("Usage: hutchbar [--hook | --print-hooks | --selftest | --version]\n", stderr)
+      fputs(
+        "Usage: hutchbar [--hook | --print-hooks | --probe-limits | --selftest | --version]\n",
+        stderr)
       exit(64)
     }
     let app = NSApplication.shared

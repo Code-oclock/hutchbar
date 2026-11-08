@@ -135,7 +135,8 @@ private struct QuotaRowParser {
       agent: .claudeCode,
       accountName: accountName,
       windows: windows,
-      observedAt: observedAt
+      observedAt: observedAt,
+      source: .ccr
     )
   }
 
