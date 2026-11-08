@@ -99,9 +99,11 @@ public enum PanelV2Logic {
 
   // MARK: - Token Formatting
 
-  /// Formats token counts into human-readable compact notation (e.g. 500, 12k, 1.5M, 12M).
-  public static func formatTokenCount(_ count: Int) -> String {
+  /// Formats token counts into human-readable compact notation (e.g. 500, 12k, 1.5M, 12M or 4,2M with locale).
+  public static func formatTokenCount(_ count: Int, locale: Locale? = nil) -> String {
     guard count > 0 else { return "0" }
+
+    let separator = locale?.decimalSeparator ?? "."
 
     if count < 1_000 {
       return "\(count)"
@@ -112,16 +114,28 @@ public enum PanelV2Logic {
       if thousands >= 10.0 || (Double(count).truncatingRemainder(dividingBy: 1_000) == 0) {
         return "\(Int(thousands.rounded()))k"
       }
-      let formatted = String(format: "%.1fk", thousands)
-      return formatted.replacingOccurrences(of: ".0k", with: "k")
+      let formatted = String(format: "%.1f", thousands)
+      let localized = formatted.replacingOccurrences(of: ".", with: separator)
+      return localized.replacingOccurrences(of: "\(separator)0", with: "") + "k"
     }
 
     let millions = Double(count) / 1_000_000.0
     if millions >= 10.0 || (Double(count).truncatingRemainder(dividingBy: 1_000_000) == 0) {
       return "\(Int(millions.rounded()))M"
     }
-    let formatted = String(format: "%.1fM", millions)
-    return formatted.replacingOccurrences(of: ".0M", with: "M")
+    let formatted = String(format: "%.1f", millions)
+    let localized = formatted.replacingOccurrences(of: ".", with: separator)
+    return localized.replacingOccurrences(of: "\(separator)0", with: "") + "M"
+  }
+
+  /// Formats cache summary line (e.g. «кэш 95 %» or «cache 95 %»).
+  public static func formatCacheSummary(
+    cachedShare: Double,
+    language: L10n.Language = L10n.currentLanguage()
+  ) -> String {
+    let cacheWord = L10n.cache(language: language)
+    let percent = Int((max(0.0, min(1.0, cachedShare)) * 100.0).rounded())
+    return "\(cacheWord) \(percent) %"
   }
 
   /// Formats the composite token and cache statistics line (e.g. «12M токенов · кэш 94 %»).
@@ -152,6 +166,18 @@ public enum PanelV2Logic {
     let formattedNumber =
       formatter.string(from: NSNumber(value: amount)) ?? String(format: "%.2f", amount)
     return "$\(formattedNumber)"
+  }
+
+  // MARK: - Agent Names and Icons
+
+  /// Returns the display name for the agent provider ("Claude" / "Codex").
+  public static func agentName(for agent: AgentKind) -> String {
+    agent == .claudeCode ? "Claude" : "Codex"
+  }
+
+  /// Returns the SF Symbol name for the agent provider icon.
+  public static func agentIcon(for agent: AgentKind) -> String {
+    agent == .claudeCode ? "asterisk" : "hexagon"
   }
 
   // MARK: - Provider Spending Formatting
@@ -204,16 +230,214 @@ public enum PanelV2Logic {
   public static func formatTrendAxisLabels(
     period: UsagePeriod,
     points: [UsagePoint],
+    now: Date = Date(),
+    calendar: Calendar = .current,
     timeZone: TimeZone = .current,
     language: L10n.Language = L10n.currentLanguage()
   ) -> (leading: String, trailing: String) {
-    guard let first = points.first, let last = points.last else {
-      return ("", "")
+    let labels = trendAxisLabels(
+      period: period,
+      points: points,
+      now: now,
+      calendar: calendar,
+      timeZone: timeZone,
+      language: language
+    )
+    return (labels.leading.text, labels.trailing.text)
+  }
+}
+
+// MARK: - Agent Spending Breakdown Extension
+
+extension PanelV2Logic {
+  /// Builds formatted spending breakdown rows for agents active in the reporting period.
+  ///
+  /// Only agents with total tokens > 0 are included.
+  /// Rows are sorted by descending cost, with ties broken by descending total tokens,
+  /// then by agent kind identifier.
+  public static func agentSpendingRows(
+    tokensByProvider: [AgentKind: TokenUsage],
+    costByProvider: [AgentKind: Double],
+    unknownTokensByProvider: [AgentKind: Int],
+    locale: Locale = .current,
+    language: L10n.Language = L10n.currentLanguage()
+  ) -> [AgentSpendingRow] {
+    let activeAgents = AgentKind.allCases.filter { agent in
+      (tokensByProvider[agent]?.total ?? 0) > 0
     }
 
-    var calendar = Calendar(identifier: .gregorian)
-    calendar.timeZone = timeZone
+    let sortedAgents = activeAgents.sorted { lhs, rhs in
+      let lhsCost = costByProvider[lhs] ?? 0.0
+      let rhsCost = costByProvider[rhs] ?? 0.0
+      if lhsCost != rhsCost {
+        return lhsCost > rhsCost
+      }
+      let lhsTokens = tokensByProvider[lhs]?.total ?? 0
+      let rhsTokens = tokensByProvider[rhs]?.total ?? 0
+      if lhsTokens != rhsTokens {
+        return lhsTokens > rhsTokens
+      }
+      return lhs.rawValue < rhs.rawValue
+    }
 
+    return sortedAgents.map { agent in
+      let totalTokens = tokensByProvider[agent]?.total ?? 0
+      let unknownTokens = unknownTokensByProvider[agent] ?? 0
+      let maybeCost = costByProvider[agent]
+
+      let tokenText = formatTokenCount(totalTokens, locale: locale)
+      let name = agentName(for: agent)
+      let icon = agentIcon(for: agent)
+      let colorToken = agentColor(for: agent)
+
+      let costText: String
+      let costNote: String?
+
+      if maybeCost == nil || unknownTokens >= totalTokens {
+        costText = "—"
+        costNote = nil
+      } else if let cost = maybeCost {
+        costText = formatCurrency(amount: cost, locale: locale)
+        if unknownTokens > 0 {
+          costNote = L10n.plusWithoutPrice(language: language)
+        } else {
+          costNote = nil
+        }
+      } else {
+        costText = "—"
+        costNote = nil
+      }
+
+      return AgentSpendingRow(
+        agent: agent,
+        name: name,
+        icon: icon,
+        colorToken: colorToken,
+        tokenCount: totalTokens,
+        tokenText: tokenText,
+        costUSD: maybeCost,
+        costText: costText,
+        costNote: costNote
+      )
+    }
+  }
+
+  /// Builds formatted spending breakdown rows for agents active in the usage summary.
+  public static func agentSpendingRows(
+    summary: UsageSummary,
+    locale: Locale = .current,
+    language: L10n.Language = L10n.currentLanguage()
+  ) -> [AgentSpendingRow] {
+    agentSpendingRows(
+      tokensByProvider: summary.tokensByProvider,
+      costByProvider: summary.costByProvider,
+      unknownTokensByProvider: summary.unknownTokensByProvider,
+      locale: locale,
+      language: language
+    )
+  }
+}
+
+// MARK: - Trend Axis Labels Extension
+
+extension PanelV2Logic {
+  /// Computes axis labels according to the separation rule:
+  /// First and last labels are always displayed.
+  /// Current point label is shown (as middle) only if it is separated from first and last
+  /// by at least 3 positions.
+  /// Otherwise, current replaces the closest extreme label (highlighted), and the extreme is hidden.
+  public static func trendAxisLabels(
+    period: UsagePeriod,
+    points: [UsagePoint],
+    now: Date = Date(),
+    calendar: Calendar = .current,
+    timeZone: TimeZone = .current,
+    language: L10n.Language = L10n.currentLanguage()
+  ) -> TrendAxisLabels {
+    guard !points.isEmpty else {
+      let empty = TrendAxisLabel(text: "")
+      return TrendAxisLabels(leading: empty, trailing: empty)
+    }
+
+    var cal = calendar
+    cal.timeZone = timeZone
+
+    if points.count == 1 {
+      let text = formatPointDate(
+        points[0].date,
+        period: period,
+        calendar: cal,
+        timeZone: timeZone,
+        language: language
+      )
+      let single = TrendAxisLabel(text: text, isCurrent: true)
+      return TrendAxisLabels(leading: single, trailing: single)
+    }
+
+    let firstIndex = 0
+    let lastIndex = points.count - 1
+
+    let currentIndex: Int
+    switch period {
+    case .today:
+      let currentHour = cal.component(.hour, from: now)
+      if let hourIndex = points.firstIndex(where: {
+        cal.component(.hour, from: $0.date) == currentHour
+      }) {
+        currentIndex = hourIndex
+      } else {
+        currentIndex = min(max(0, currentHour), lastIndex)
+      }
+
+    case .week, .month:
+      if let dayIndex = points.firstIndex(where: { cal.isDate($0.date, inSameDayAs: now) }) {
+        currentIndex = dayIndex
+      } else {
+        currentIndex = lastIndex
+      }
+    }
+
+    let distFirst = currentIndex - firstIndex
+    let distLast = lastIndex - currentIndex
+    let isSeparated = distFirst >= 3 && distLast >= 3
+
+    let formatLabel: (Int, Bool) -> TrendAxisLabel = { (pointIndex, isCurrent) in
+      let text = formatPointDate(
+        points[pointIndex].date,
+        period: period,
+        calendar: cal,
+        timeZone: timeZone,
+        language: language
+      )
+      return TrendAxisLabel(text: text, isCurrent: isCurrent)
+    }
+
+    if isSeparated {
+      let leading = formatLabel(firstIndex, false)
+      let middle = formatLabel(currentIndex, true)
+      let trailing = formatLabel(lastIndex, false)
+      return TrendAxisLabels(leading: leading, trailing: trailing, middle: middle)
+    }
+
+    if distFirst <= distLast {
+      let leading = formatLabel(currentIndex, true)
+      let trailing = formatLabel(lastIndex, false)
+      return TrendAxisLabels(leading: leading, trailing: trailing, middle: nil)
+    } else {
+      let leading = formatLabel(firstIndex, false)
+      let trailing = formatLabel(currentIndex, true)
+      return TrendAxisLabels(leading: leading, trailing: trailing, middle: nil)
+    }
+  }
+
+  /// Formats date of a usage point according to the selected reporting period.
+  private static func formatPointDate(
+    _ date: Date,
+    period: UsagePeriod,
+    calendar: Calendar,
+    timeZone: TimeZone,
+    language: L10n.Language
+  ) -> String {
     let formatter = DateFormatter()
     formatter.calendar = calendar
     formatter.timeZone = timeZone
@@ -222,21 +446,19 @@ public enum PanelV2Logic {
     switch period {
     case .today:
       formatter.dateFormat = "HH:mm"
-      let leading = formatter.string(from: first.date)
-      let trailing = formatter.string(from: last.date)
-      return (leading, trailing)
+      return formatter.string(from: date)
 
     case .week:
-      formatter.dateFormat = "d MMM"
-      let leading = formatter.string(from: first.date)
-      let trailing = L10n.periodToday(language: language)
-      return (leading, trailing)
+      formatter.dateFormat = "EEE"
+      let text = formatter.string(from: date)
+      if language == .ru {
+        return text.trimmingCharacters(in: CharacterSet(charactersIn: ".")).lowercased()
+      }
+      return text
 
     case .month:
-      formatter.dateFormat = "d MMM"
-      let leading = formatter.string(from: first.date)
-      let trailing = L10n.periodToday(language: language)
-      return (leading, trailing)
+      let dayNumber = calendar.component(.day, from: date)
+      return "\(dayNumber)"
     }
   }
 }

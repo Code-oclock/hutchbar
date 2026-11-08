@@ -167,3 +167,9 @@ private let testBaseTime = makeDate(year: 2026, month: 11, day: 7, hour: 12, min
   #expect(formatQuotaWindowDuration(120) == "2h")
   #expect(formatQuotaWindowDuration(45) == "45m")
 }
+
+@Test func panelFormatting_tokenCount() {
+  #expect(formatTokenCount(61_000_000) == "61M")
+  let ruLocale = Locale(identifier: "ru_RU")
+  #expect(formatTokenCount(4_200_000, locale: ruLocale) == "4,2M")
+}

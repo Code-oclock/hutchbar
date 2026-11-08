@@ -99,3 +99,8 @@ public func formatQuotaWindowDuration(_ windowMinutes: Int) -> String {
   }
   return "\(windowMinutes)m"
 }
+
+/// Formats token counts into human-readable compact notation (e.g. 500, 12k, 1.5M, 12M or 4,2M).
+public func formatTokenCount(_ count: Int, locale: Locale? = nil) -> String {
+  PanelV2Logic.formatTokenCount(count, locale: locale)
+}

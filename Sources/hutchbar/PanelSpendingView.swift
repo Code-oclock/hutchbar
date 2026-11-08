@@ -6,6 +6,10 @@ import SwiftUI
 struct PanelSpendingView: View {
   let usage: UsageViewModel
 
+  init(usage: UsageViewModel) {
+    self.usage = usage
+  }
+
   var body: some View {
     PanelCardView {
       HStack {
@@ -34,6 +38,8 @@ struct PanelSpendingView: View {
 
   @ViewBuilder
   private func spendingContent(summary: UsageSummary) -> some View {
+    let rows = PanelV2Logic.agentSpendingRows(summary: summary)
+
     VStack(alignment: .leading, spacing: 6) {
       HStack(alignment: .firstTextBaseline, spacing: 6) {
         Text(PanelV2Logic.formatCurrency(amount: summary.costUSD))
@@ -44,46 +50,68 @@ struct PanelSpendingView: View {
           .foregroundStyle(.secondary)
       }
 
-      HStack(spacing: 6) {
-        Image(systemName: "asterisk")
-          .font(.caption2)
-          .foregroundStyle(.orange)
-        Text(summary.spendingText(for: .claudeCode))
-
-        Text("·")
-          .foregroundStyle(.secondary)
-
-        Image(systemName: "hexagon")
-          .font(.caption2)
-          .foregroundStyle(.blue)
-        Text(summary.spendingText(for: .codex))
-      }
-      .font(.caption)
-      .fontWeight(.medium)
-
-      Text(
-        PanelV2Logic.formatTokenAndCacheSummary(
-          tokens: summary.tokens.total,
-          cachedShare: summary.cachedShare
-        )
-      )
-      .font(.caption)
-      .foregroundStyle(.secondary)
-
-      if summary.hasUnknownModels {
-        HStack(spacing: 4) {
-          Image(systemName: "info.circle")
-          Text("+ \(L10n.modelsWithoutPrice())")
+      if !rows.isEmpty {
+        VStack(spacing: 4) {
+          ForEach(rows) { row in
+            agentRow(row)
+          }
         }
-        .font(.caption2)
-        .foregroundStyle(.orange)
       }
+
+      Text(PanelV2Logic.formatCacheSummary(cachedShare: summary.cachedShare))
+        .font(.caption)
+        .foregroundStyle(.secondary)
     }
     .accessibilityElement(children: .combine)
-    .accessibilityLabel(
-      "\(PanelV2Logic.formatCurrency(amount: summary.costUSD)) \(L10n.atApiPrices()), "
-        + "\(PanelV2Logic.formatTokenAndCacheSummary(tokens: summary.tokens.total, cachedShare: summary.cachedShare))"
-    )
+    .accessibilityLabel(accessibilitySummary(summary: summary, rows: rows))
+  }
+
+  private func agentRow(_ row: AgentSpendingRow) -> some View {
+    HStack(spacing: 6) {
+      Image(systemName: row.icon)
+        .font(.caption2)
+        .fontWeight(.bold)
+        .foregroundStyle(row.colorToken.color)
+        .frame(width: 12)
+
+      Text(row.name)
+        .font(.caption)
+        .fontWeight(.medium)
+
+      Spacer()
+
+      Text(row.tokenText)
+        .font(.caption)
+        .foregroundStyle(.secondary)
+
+      HStack(spacing: 3) {
+        Text(row.costText)
+          .font(.caption)
+          .fontWeight(.medium)
+
+        if let note = row.costNote {
+          Text(note)
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+        }
+      }
+    }
+  }
+
+  private func accessibilitySummary(
+    summary: UsageSummary,
+    rows: [AgentSpendingRow]
+  ) -> String {
+    let mainCost = "\(PanelV2Logic.formatCurrency(amount: summary.costUSD)) \(L10n.atApiPrices())"
+    let cacheText = PanelV2Logic.formatCacheSummary(cachedShare: summary.cachedShare)
+    let details = rows.map { row in
+      let costDisplay = row.costNote.map { "\(row.costText) \($0)" } ?? row.costText
+      return "\(row.name): \(row.tokenText), \(costDisplay)"
+    }.joined(separator: "; ")
+    if details.isEmpty {
+      return "\(mainCost), \(cacheText)"
+    }
+    return "\(mainCost), \(details), \(cacheText)"
   }
 
   private var emptySpendingState: some View {
