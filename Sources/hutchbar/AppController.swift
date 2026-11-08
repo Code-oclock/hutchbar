@@ -9,22 +9,38 @@ final class AppController {
   public let scanner: UsageScanner
   public let usage: UsageViewModel
   public let settings: Settings
+  public let poller: QuotaPoller
   private let coordinator: SourceCoordinator
   private let attention: AttentionPillController
 
   private var updatesTask: Task<Void, Never>?
+  private var pollerTask: Task<Void, Never>?
   private var usageTask: Task<Void, Never>?
   private var timer: Timer?
   private var isStopped = false
 
   public init(
     settings: Settings = Settings(),
-    scanner: UsageScanner = UsageScanner()
+    scanner: UsageScanner = UsageScanner(),
+    poller: QuotaPoller? = nil
   ) {
     self.settings = settings
     let store = SessionStore(showFinished: settings.showFinished)
     self.store = store
     self.scanner = scanner
+
+    let pollerInstance =
+      poller
+      ?? QuotaPoller(
+        targets: QuotaPoller.defaultTargets(appVersion: HutchbarVersion.current)
+      )
+    self.poller = pollerInstance
+
+    MenuBarController.onPanelVisibilityChange = { [weak pollerInstance] visible in
+      Task {
+        await pollerInstance?.setPanelVisible(visible)
+      }
+    }
 
     let usage = UsageViewModel(period: settings.usagePeriod)
     usage.onPeriodChange = { [weak settings] period in
@@ -74,6 +90,16 @@ final class AppController {
       }
     }
 
+    let poller = self.poller
+    pollerTask = Task { [weak self, poller] in
+      await poller.start()
+      for await update in poller.updates {
+        guard !Task.isCancelled else { break }
+        guard let self else { break }
+        self.store.apply(update)
+      }
+    }
+
     let scanner = self.scanner
     usageTask = Task { [weak self, scanner] in
       await scanner.start()
@@ -103,8 +129,13 @@ final class AppController {
     guard !isStopped else { return }
     isStopped = true
 
+    MenuBarController.onPanelVisibilityChange = nil
+
     updatesTask?.cancel()
     updatesTask = nil
+
+    pollerTask?.cancel()
+    pollerTask = nil
 
     usageTask?.cancel()
     usageTask = nil
@@ -118,9 +149,11 @@ final class AppController {
 
     let coordinator = self.coordinator
     let scanner = self.scanner
+    let poller = self.poller
     Task {
       await coordinator.stop()
       await scanner.stop()
+      await poller.stop()
     }
   }
 }

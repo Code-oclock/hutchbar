@@ -67,6 +67,6 @@ Verified live with codex-cli 0.162.1.
 
 ## 6. Presentation rules
 
-- A window whose `resetsAt` is in the past has restarted: show it as fully available with "updates on next request", never as "no fresh data".
+- A window whose `resetsAt` is in the past has restarted: show it as fully available with "reset", never as "no fresh data".
 - `resetsAt == nil` with 0 % used: "not started".
 - All accounts of a provider are shown; the one with the newest activity is marked "now".

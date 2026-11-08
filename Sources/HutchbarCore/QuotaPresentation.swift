@@ -10,7 +10,9 @@ public enum QuotaBarLevel: String, Sendable, Equatable, CaseIterable {
 
 /// Formatted representation of a single rate-limit window.
 public struct WindowPresentation: Equatable, Sendable, Identifiable {
-  public var id: Int { windowMinutes }
+  public var id: String {
+    "\(windowMinutes)_\(label)"
+  }
   public let windowMinutes: Int
   public let label: String
   public let remainingPercent: Double
@@ -29,7 +31,7 @@ public struct WindowPresentation: Equatable, Sendable, Identifiable {
     resetsInText: String,
     resetsAt: Date?,
     pace: Double?,
-    isStale: Bool,
+    isStale: Bool = false,
     level: QuotaBarLevel
   ) {
     self.windowMinutes = windowMinutes
@@ -44,24 +46,38 @@ public struct WindowPresentation: Equatable, Sendable, Identifiable {
   }
 }
 
-/// Compact representation of a secondary (non-primary) account under the same provider.
-public struct SecondaryAccountPresentation: Equatable, Sendable, Identifiable {
-  public var id: String { accountName }
-  public let accountName: String
+/// Formatted representation of one account's quotas under a provider.
+public struct AccountQuotaPresentation: Equatable, Sendable, Identifiable {
+  public let id: String
+  public let name: String
+  public let planBadge: String?
+  public let resetCreditsText: String?
+  public let isCurrent: Bool
   public let observedAt: Date
-  public let compactString: String
   public let windows: [WindowPresentation]
+  public let asOfText: String?
+
+  public var isStale: Bool { asOfText != nil }
+  public var accountName: String { name }
 
   public init(
-    accountName: String,
+    id: String,
+    name: String,
+    planBadge: String? = nil,
+    resetCreditsText: String? = nil,
+    isCurrent: Bool = false,
     observedAt: Date,
-    compactString: String,
-    windows: [WindowPresentation]
+    windows: [WindowPresentation],
+    asOfText: String? = nil
   ) {
-    self.accountName = accountName
+    self.id = id
+    self.name = name
+    self.planBadge = planBadge
+    self.resetCreditsText = resetCreditsText
+    self.isCurrent = isCurrent
     self.observedAt = observedAt
-    self.compactString = compactString
     self.windows = windows
+    self.asOfText = asOfText
   }
 }
 
@@ -69,29 +85,18 @@ public struct SecondaryAccountPresentation: Equatable, Sendable, Identifiable {
 public struct ProviderQuotaCard: Equatable, Sendable, Identifiable {
   public var id: String { agent.rawValue }
   public let agent: AgentKind
-  public let primaryAccountName: String
-  public let observedAt: Date
-  public let planBadge: String?
-  public let windows: [WindowPresentation]
-  public let secondaryAccounts: [SecondaryAccountPresentation]
-  public let isStale: Bool
+  public let accounts: [AccountQuotaPresentation]
 
-  public init(
-    agent: AgentKind,
-    primaryAccountName: String,
-    observedAt: Date,
-    planBadge: String?,
-    windows: [WindowPresentation],
-    secondaryAccounts: [SecondaryAccountPresentation],
-    isStale: Bool
-  ) {
+  public var primaryAccountName: String { accounts.first?.name ?? "" }
+  public var secondaryAccounts: [AccountQuotaPresentation] { Array(accounts.dropFirst()) }
+  public var windows: [WindowPresentation] { accounts.first?.windows ?? [] }
+  public var planBadge: String? { accounts.first?.planBadge }
+  public var observedAt: Date { accounts.first?.observedAt ?? .distantPast }
+  public var isStale: Bool { accounts.first?.isStale ?? false }
+
+  public init(agent: AgentKind, accounts: [AccountQuotaPresentation]) {
     self.agent = agent
-    self.primaryAccountName = primaryAccountName
-    self.observedAt = observedAt
-    self.planBadge = planBadge
-    self.windows = windows
-    self.secondaryAccounts = secondaryAccounts
-    self.isStale = isStale
+    self.accounts = accounts
   }
 }
 
@@ -127,71 +132,19 @@ public struct QuotaPresentation: Equatable, Sendable {
     var cardList: [ProviderQuotaCard] = []
 
     for agent in AgentKind.allCases {
-      let providerQuotas = quotas.filter { $0.agent == agent }
-      guard !providerQuotas.isEmpty else { continue }
+      let agentQuotas = quotas.filter { $0.agent == agent }
+      guard !agentQuotas.isEmpty else { continue }
 
-      let sorted = providerQuotas.sorted { lhs, rhs in
-        if lhs.observedAt != rhs.observedAt {
-          return lhs.observedAt > rhs.observedAt
-        }
-        return lhs.accountName < rhs.accountName
-      }
-
-      guard let primaryQuota = sorted.first else { continue }
-      let secondaryQuotas = Array(sorted.dropFirst())
-
-      let primaryWindows = primaryQuota.windows
-        .sorted { $0.windowMinutes < $1.windowMinutes }
-        .map { window in
-          Self.makeWindowPresentation(
-            window: window,
-            observedAt: primaryQuota.observedAt,
-            now: now,
-            language: language
-          )
-        }
-
-      let secondaryPresentations = secondaryQuotas.map { secQuota in
-        let secWindows = secQuota.windows
-          .sorted { $0.windowMinutes < $1.windowMinutes }
-          .map { window in
-            Self.makeWindowPresentation(
-              window: window,
-              observedAt: secQuota.observedAt,
-              now: now,
-              language: language
-            )
-          }
-
-        let compact = Self.makeSecondaryCompactString(
-          accountName: secQuota.accountName,
-          windows: secWindows,
-          now: now,
-          timeZone: timeZone,
-          language: language
-        )
-
-        return SecondaryAccountPresentation(
-          accountName: secQuota.accountName,
-          observedAt: secQuota.observedAt,
-          compactString: compact,
-          windows: secWindows
-        )
-      }
-
-      let isCardStale = primaryWindows.isEmpty || primaryWindows.allSatisfy(\.isStale)
-
-      cardList.append(
-        ProviderQuotaCard(
-          agent: agent,
-          primaryAccountName: primaryQuota.accountName,
-          observedAt: primaryQuota.observedAt,
-          planBadge: nil,
-          windows: primaryWindows,
-          secondaryAccounts: secondaryPresentations,
-          isStale: isCardStale
-        )
+      let accounts = Self.buildAccounts(
+        agent: agent,
+        quotas: agentQuotas,
+        now: now,
+        timeZone: timeZone,
+        language: language
       )
+      guard !accounts.isEmpty else { continue }
+
+      cardList.append(ProviderQuotaCard(agent: agent, accounts: accounts))
     }
 
     self.cards = cardList
@@ -204,28 +157,9 @@ public struct QuotaPresentation: Equatable, Sendable {
   // MARK: - Calculations
 
   public static func evaluateLevel(for remainingPercent: Double) -> QuotaBarLevel {
-    if remainingPercent < 10.0 {
-      return .critical
-    } else if remainingPercent < 20.0 {
-      return .warning
-    } else {
-      return .normal
-    }
-  }
-
-  public static func isWindowStale(
-    window: QuotaWindow,
-    observedAt: Date,
-    now: Date
-  ) -> Bool {
-    let windowDuration = TimeInterval(window.windowMinutes * 60)
-    if now.timeIntervalSince(observedAt) > windowDuration {
-      return true
-    }
-    if let resetsAt = window.resetsAt, resetsAt < now {
-      return true
-    }
-    return false
+    if remainingPercent < 10.0 { return .critical }
+    if remainingPercent < 20.0 { return .warning }
+    return .normal
   }
 
   public static func calculatePace(
@@ -240,30 +174,92 @@ public struct QuotaPresentation: Equatable, Sendable {
     return max(0.0, min(1.0, rawPace))
   }
 
+  public static func formatPlanBadge(_ plan: String) -> String {
+    let trimmed = plan.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return "" }
+    return trimmed.prefix(1).uppercased() + trimmed.dropFirst()
+  }
+
+  public static func formatLabel(
+    windowMinutes: Int,
+    scope: String?,
+    language: L10n.Language
+  ) -> String {
+    let base = L10n.quotaWindowName(minutes: windowMinutes, language: language)
+    if let scope, !scope.isEmpty {
+      return "\(base) · \(scope)"
+    }
+    return base
+  }
+
   public static func makeWindowPresentation(
     window: QuotaWindow,
-    observedAt: Date,
     now: Date,
     language: L10n.Language
   ) -> WindowPresentation {
-    let remaining = max(0.0, min(100.0, 100.0 - window.usedPercent))
-    let stale = isWindowStale(window: window, observedAt: observedAt, now: now)
-    let pace = calculatePace(
-      resetsAt: window.resetsAt, windowMinutes: window.windowMinutes, now: now)
-    let label = L10n.quotaWindowName(minutes: window.windowMinutes, language: language)
-    let remainingInt = Int(remaining.rounded())
-    let remText = L10n.remainingPercent(remainingInt, language: language)
+    let label = formatLabel(
+      windowMinutes: window.windowMinutes,
+      scope: window.scope,
+      language: language
+    )
 
-    let resetsText: String
-    if stale {
-      resetsText = L10n.noFreshData(language: language)
-    } else if let resetsAt = window.resetsAt {
-      resetsText = L10n.countdown(from: resetsAt, now: now, language: language)
-    } else {
-      resetsText = L10n.noFreshData(language: language)
+    if let resetsAt = window.resetsAt, resetsAt <= now {
+      return WindowPresentation(
+        windowMinutes: window.windowMinutes,
+        label: label,
+        remainingPercent: 100.0,
+        remainingText: L10n.remainingPercent(100, language: language),
+        resetsInText: L10n.updatesOnNextRequest(language: language),
+        resetsAt: resetsAt,
+        pace: nil,
+        isStale: false,
+        level: .normal
+      )
     }
 
+    let isNotStarted: Bool
+    if window.usedPercent == 0 {
+      if let resetsAt = window.resetsAt {
+        let windowDuration = TimeInterval(window.windowMinutes * 60)
+        let timeUntilReset = resetsAt.timeIntervalSince(now)
+        isNotStarted = timeUntilReset >= (windowDuration - 120.0)
+      } else {
+        isNotStarted = true
+      }
+    } else {
+      isNotStarted = false
+    }
+
+    if isNotStarted {
+      return WindowPresentation(
+        windowMinutes: window.windowMinutes,
+        label: label,
+        remainingPercent: 100.0,
+        remainingText: L10n.remainingPercent(100, language: language),
+        resetsInText: L10n.notStarted(language: language),
+        resetsAt: window.resetsAt,
+        pace: nil,
+        isStale: false,
+        level: .normal
+      )
+    }
+
+    let remaining = max(0.0, min(100.0, 100.0 - window.usedPercent))
+    let remainingInt = Int(remaining.rounded())
+    let remText = L10n.remainingPercent(remainingInt, language: language)
+    let pace = calculatePace(
+      resetsAt: window.resetsAt,
+      windowMinutes: window.windowMinutes,
+      now: now
+    )
     let level = evaluateLevel(for: remaining)
+
+    let resetsText: String
+    if let resetsAt = window.resetsAt, resetsAt > now {
+      resetsText = L10n.countdown(from: resetsAt, now: now, language: language)
+    } else {
+      resetsText = L10n.updatesOnNextRequest(language: language)
+    }
 
     return WindowPresentation(
       windowMinutes: window.windowMinutes,
@@ -273,71 +269,222 @@ public struct QuotaPresentation: Equatable, Sendable {
       resetsInText: resetsText,
       resetsAt: window.resetsAt,
       pace: pace,
-      isStale: stale,
+      isStale: false,
       level: level
     )
   }
+}
 
-  public static func makeSecondaryCompactString(
-    accountName: String,
-    windows: [WindowPresentation],
+// MARK: - Account Merging & Construction
+
+extension QuotaPresentation {
+  private struct MergedCluster {
+    let group: [AccountQuota]
+    let name: String
+    let numbersRecord: AccountQuota
+    let plan: String?
+    let resetCredits: Int?
+    let latestRealWorkDate: Date?
+  }
+
+  private static func canMerge(_ lhs: AccountQuota, _ rhs: AccountQuota) -> Bool {
+    guard lhs.agent == rhs.agent else { return false }
+    guard
+      let lhsWeek = lhs.windows.first(where: { $0.windowMinutes == 10080 && $0.scope == nil }),
+      let rhsWeek = rhs.windows.first(where: { $0.windowMinutes == 10080 && $0.scope == nil }),
+      let lhsReset = lhsWeek.resetsAt,
+      let rhsReset = rhsWeek.resetsAt
+    else {
+      return false
+    }
+    return abs(lhsReset.timeIntervalSince(rhsReset)) <= 60.0
+  }
+
+  private static func clusterQuotas(_ quotas: [AccountQuota]) -> [[AccountQuota]] {
+    var groups: [[AccountQuota]] = []
+    for quota in quotas {
+      var matchingIndices: [Int] = []
+      for (idx, group) in groups.enumerated() {
+        if group.contains(where: { canMerge($0, quota) }) {
+          matchingIndices.append(idx)
+        }
+      }
+      if matchingIndices.isEmpty {
+        groups.append([quota])
+      } else {
+        var combined: [AccountQuota] = [quota]
+        for idx in matchingIndices.reversed() {
+          combined.append(contentsOf: groups.remove(at: idx))
+        }
+        groups.append(combined)
+      }
+    }
+    return groups
+  }
+
+  private static func resolveClusterName(_ group: [AccountQuota]) -> String {
+    let ccrRecords = group.filter { $0.source == .ccr }
+    if let bestCcr = ccrRecords.max(by: { $0.observedAt < $1.observedAt }) {
+      return bestCcr.accountName
+    }
+    let cliRecords = group.filter { $0.source == .agentCLI }
+    if let bestCli = cliRecords.max(by: { $0.observedAt < $1.observedAt }) {
+      return bestCli.accountName
+    }
+    let bestOther = group.max(by: { $0.observedAt < $1.observedAt })
+    return bestOther?.accountName ?? "unknown"
+  }
+
+  private static func resolveClusterPlan(_ group: [AccountQuota]) -> String? {
+    let cliRecords = group.filter {
+      $0.source == .agentCLI && $0.plan != nil && !($0.plan?.isEmpty ?? true)
+    }
+    if let plan = cliRecords.max(by: { $0.observedAt < $1.observedAt })?.plan {
+      return plan
+    }
+    let anyRecords = group.filter { $0.plan != nil && !($0.plan?.isEmpty ?? true) }
+    return anyRecords.max(by: { $0.observedAt < $1.observedAt })?.plan
+  }
+
+  private static func resolveClusterCredits(_ group: [AccountQuota]) -> Int? {
+    let cliRecords = group.filter { $0.source == .agentCLI && $0.resetCredits != nil }
+    if let credits = cliRecords.max(by: { $0.observedAt < $1.observedAt })?.resetCredits {
+      return credits
+    }
+    let anyRecords = group.filter { $0.resetCredits != nil }
+    return anyRecords.max(by: { $0.observedAt < $1.observedAt })?.resetCredits
+  }
+
+  private static func sortQuotaWindows(_ rawWindows: [QuotaWindow]) -> [QuotaWindow] {
+    rawWindows.sorted { lhs, rhs in
+      let lhsHasScope = lhs.scope != nil && !(lhs.scope?.isEmpty ?? true)
+      let rhsHasScope = rhs.scope != nil && !(rhs.scope?.isEmpty ?? true)
+      if lhsHasScope != rhsHasScope {
+        return !lhsHasScope && rhsHasScope
+      }
+      if lhs.windowMinutes != rhs.windowMinutes {
+        return lhs.windowMinutes < rhs.windowMinutes
+      }
+      return (lhs.scope ?? "") < (rhs.scope ?? "")
+    }
+  }
+
+  /// The account in real use: newest `.sessionLog` / `.ccr` reading; else the newest reading.
+  private static func selectCurrentClusterName(_ clusters: [MergedCluster]) -> String? {
+    let hasAnyRealWork = clusters.contains { $0.latestRealWorkDate != nil }
+    if hasAnyRealWork {
+      return clusters.max(by: { lhs, rhs in
+        let lhsDate = lhs.latestRealWorkDate ?? .distantPast
+        let rhsDate = rhs.latestRealWorkDate ?? .distantPast
+        if lhsDate != rhsDate {
+          return lhsDate < rhsDate
+        }
+        if lhs.numbersRecord.observedAt != rhs.numbersRecord.observedAt {
+          return lhs.numbersRecord.observedAt < rhs.numbersRecord.observedAt
+        }
+        return lhs.name > rhs.name
+      })?.name
+    } else {
+      return clusters.max(by: { lhs, rhs in
+        if lhs.numbersRecord.observedAt != rhs.numbersRecord.observedAt {
+          return lhs.numbersRecord.observedAt < rhs.numbersRecord.observedAt
+        }
+        return lhs.name > rhs.name
+      })?.name
+    }
+  }
+
+  private static func buildAccounts(
+    agent: AgentKind,
+    quotas: [AccountQuota],
     now: Date,
-    timeZone: TimeZone = .current,
+    timeZone: TimeZone,
     language: L10n.Language
-  ) -> String {
-    let chosenWindow: WindowPresentation?
-    if let week = windows.first(where: { $0.windowMinutes == 10080 }) {
-      if let minWin = windows.min(by: { $0.remainingPercent < $1.remainingPercent }),
-        minWin.remainingPercent < week.remainingPercent
-      {
-        chosenWindow = minWin
-      } else {
-        chosenWindow = week
-      }
-    } else {
-      chosenWindow = windows.min(by: { $0.remainingPercent < $1.remainingPercent })
-    }
+  ) -> [AccountQuotaPresentation] {
+    let rawGroups = clusterQuotas(quotas)
+    guard !rawGroups.isEmpty else { return [] }
 
-    guard let chosen = chosenWindow else {
-      return accountName
-    }
+    var clusters: [MergedCluster] = []
+    clusters.reserveCapacity(rawGroups.count)
 
-    var parts: [String] = [accountName]
-    let remainingInt = Int(chosen.remainingPercent.rounded())
+    for group in rawGroups {
+      let chosenName = resolveClusterName(group)
+      let numbersRecord = group.max(by: { $0.observedAt < $1.observedAt }) ?? group[0]
+      let chosenPlan = resolveClusterPlan(group)
+      let chosenCredits = resolveClusterCredits(group)
+      let realWorkDates = group.filter { $0.source == .sessionLog || $0.source == .ccr }.map(
+        \.observedAt)
+      let latestRealWork = realWorkDates.max()
 
-    if remainingInt <= 0 {
-      parts.append(
-        L10n.windowUsedUp(
-          windowName: chosen.label,
-          minutes: chosen.windowMinutes,
-          language: language
+      clusters.append(
+        MergedCluster(
+          group: group,
+          name: chosenName,
+          numbersRecord: numbersRecord,
+          plan: chosenPlan,
+          resetCredits: chosenCredits,
+          latestRealWorkDate: latestRealWork
         )
       )
-      if let resetFormatted = L10n.formatResetDate(
-        chosen.resetsAt,
-        now: now,
-        calendar: Calendar(identifier: .gregorian),
-        timeZone: timeZone,
-        isUntil: true,
-        language: language
-      ) {
-        parts.append(resetFormatted)
-      }
-    } else {
-      parts.append(
-        L10n.secondaryRemaining(
-          windowName: chosen.label,
-          percent: remainingInt,
-          language: language
-        )
-      )
-      if !chosen.isStale {
-        parts.append("↻ \(chosen.resetsInText)")
-      } else {
-        parts.append(chosen.resetsInText)
-      }
     }
 
-    return parts.joined(separator: " · ")
+    let currentClusterName = selectCurrentClusterName(clusters)
+
+    var result: [AccountQuotaPresentation] = []
+    result.reserveCapacity(clusters.count)
+
+    for cluster in clusters {
+      let isCurrent = cluster.name == currentClusterName
+      let planBadge = cluster.plan.flatMap { plan -> String? in
+        let formatted = formatPlanBadge(plan)
+        return formatted.isEmpty ? nil : formatted
+      }
+
+      let resetCreditsText = cluster.resetCredits.flatMap { credits -> String? in
+        credits > 0 ? L10n.resetCredits(credits, language: language) : nil
+      }
+
+      let isStale =
+        (cluster.numbersRecord.source != .agentCLI)
+        && (now.timeIntervalSince(cluster.numbersRecord.observedAt) > 7200.0)
+
+      let asOfText: String?
+      if isStale {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        formatter.timeZone = timeZone
+        let timeStr = formatter.string(from: cluster.numbersRecord.observedAt)
+        asOfText = L10n.dataAsOf(timeStr, language: language)
+      } else {
+        asOfText = nil
+      }
+
+      let sortedWindows = sortQuotaWindows(cluster.numbersRecord.windows)
+      let windows = sortedWindows.map { window in
+        makeWindowPresentation(window: window, now: now, language: language)
+      }
+
+      result.append(
+        AccountQuotaPresentation(
+          id: "\(agent.rawValue):\(cluster.name)",
+          name: cluster.name,
+          planBadge: planBadge,
+          resetCreditsText: resetCreditsText,
+          isCurrent: isCurrent,
+          observedAt: cluster.numbersRecord.observedAt,
+          windows: windows,
+          asOfText: asOfText
+        )
+      )
+    }
+
+    result.sort { lhs, rhs in
+      if lhs.isCurrent != rhs.isCurrent {
+        return lhs.isCurrent && !rhs.isCurrent
+      }
+      return lhs.name < rhs.name
+    }
+
+    return result
   }
 }

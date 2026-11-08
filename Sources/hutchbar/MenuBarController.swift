@@ -8,6 +8,9 @@ import SwiftUI
 /// Manages the menu bar status item, status icon updates, and click actions.
 @MainActor
 final class MenuBarController: NSObject, NSPopoverDelegate {
+  public static var onPanelVisibilityChange: (@MainActor (Bool) -> Void)?
+  public var onPanelVisibilityChange: (@MainActor (Bool) -> Void)?
+
   private let store: SessionStore
   private let usage: UsageViewModel
   private let settings: Settings
@@ -18,11 +21,13 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
   public init(
     store: SessionStore,
     usage: UsageViewModel = UsageViewModel(),
-    settings: Settings
+    settings: Settings,
+    onPanelVisibilityChange: (@MainActor (Bool) -> Void)? = nil
   ) {
     self.store = store
     self.usage = usage
     self.settings = settings
+    self.onPanelVisibilityChange = onPanelVisibilityChange
     L10n.preference = settings.language
     super.init()
 
@@ -108,6 +113,7 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
       popover.contentViewController = hostingController
       popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
       NSApp.activate(ignoringOtherApps: true)
+      notifyPanelVisibility(true)
     }
   }
 
@@ -184,6 +190,12 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
 
   func popoverDidClose(_ notification: Notification) {
     popover.contentViewController = nil
+    notifyPanelVisibility(false)
+  }
+
+  private func notifyPanelVisibility(_ visible: Bool) {
+    onPanelVisibilityChange?(visible)
+    Self.onPanelVisibilityChange?(visible)
   }
 
   public func stop() {
@@ -192,6 +204,7 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
 
     if popover.isShown {
       popover.performClose(nil)
+      notifyPanelVisibility(false)
     }
     popover.contentViewController = nil
 

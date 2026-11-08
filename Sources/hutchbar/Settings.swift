@@ -49,6 +49,10 @@ extension SourceKind {
       return "Claude Code quotas (ccr)"
     case .claudeLive:
       return "Claude Code live sessions"
+    case .claudeUsage:
+      return "Claude Code usage"
+    case .codexUsage:
+      return "Codex usage"
     }
   }
 }

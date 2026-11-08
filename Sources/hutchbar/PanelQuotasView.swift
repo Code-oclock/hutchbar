@@ -6,6 +6,10 @@ import SwiftUI
 struct PanelQuotasView: View {
   let presentation: QuotaPresentation
 
+  init(presentation: QuotaPresentation) {
+    self.presentation = presentation
+  }
+
   var body: some View {
     if presentation.cards.isEmpty {
       PanelCardView {
@@ -36,27 +40,21 @@ struct PanelQuotasView: View {
 private struct ProviderQuotaCardView: View {
   let card: ProviderQuotaCard
 
+  init(card: ProviderQuotaCard) {
+    self.card = card
+  }
+
   var body: some View {
     PanelCardView {
       cardHeader
 
       VStack(spacing: 8) {
-        ForEach(card.windows.prefix(2)) { window in
-          QuotaWindowRowView(window: window)
-        }
-      }
-
-      if !card.secondaryAccounts.isEmpty {
-        Divider()
-          .padding(.vertical, 2)
-
-        VStack(alignment: .leading, spacing: 3) {
-          ForEach(card.secondaryAccounts) { sec in
-            Text(sec.compactString)
-              .font(.caption2)
-              .foregroundStyle(.secondary)
-              .lineLimit(1)
+        ForEach(Array(card.accounts.enumerated()), id: \.element.id) { index, account in
+          if index > 0 {
+            Divider()
+              .padding(.vertical, 2)
           }
+          AccountQuotaBlockView(account: account)
         }
       }
     }
@@ -73,24 +71,7 @@ private struct ProviderQuotaCardView: View {
         .font(.subheadline)
         .fontWeight(.semibold)
 
-      if !card.primaryAccountName.isEmpty {
-        Text(card.primaryAccountName)
-          .font(.caption)
-          .foregroundStyle(.secondary)
-          .lineLimit(1)
-      }
-
       Spacer()
-
-      if let plan = card.planBadge, !plan.isEmpty {
-        Text(plan)
-          .font(.caption2)
-          .fontWeight(.medium)
-          .padding(.horizontal, 5)
-          .padding(.vertical, 1)
-          .background(Capsule().fill(Color.secondary.opacity(0.15)))
-          .foregroundStyle(.secondary)
-      }
     }
   }
 
@@ -117,9 +98,82 @@ private struct ProviderQuotaCardView: View {
   }
 }
 
+/// A single account block showing account information and rate limit windows.
+private struct AccountQuotaBlockView: View {
+  let account: AccountQuotaPresentation
+
+  init(account: AccountQuotaPresentation) {
+    self.account = account
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      accountHeader
+
+      VStack(spacing: 6) {
+        ForEach(account.windows) { window in
+          QuotaWindowRowView(window: window)
+        }
+      }
+    }
+  }
+
+  private var accountHeader: some View {
+    HStack(spacing: 4) {
+      Text(account.name)
+        .font(.caption)
+        .fontWeight(.medium)
+        .lineLimit(1)
+
+      if let plan = account.planBadge, !plan.isEmpty {
+        Text("·")
+          .font(.caption2)
+          .foregroundStyle(.secondary)
+        Text(plan)
+          .font(.caption2)
+          .fontWeight(.medium)
+          .padding(.horizontal, 4)
+          .padding(.vertical, 1)
+          .background(Capsule().fill(Color.secondary.opacity(0.15)))
+          .foregroundStyle(.secondary)
+      }
+
+      if let credits = account.resetCreditsText, !credits.isEmpty {
+        Text("·")
+          .font(.caption2)
+          .foregroundStyle(.secondary)
+        Text(credits)
+          .font(.caption2)
+          .fontWeight(.medium)
+          .padding(.horizontal, 4)
+          .padding(.vertical, 1)
+          .background(Capsule().fill(Color.secondary.opacity(0.15)))
+          .foregroundStyle(.secondary)
+      }
+
+      Spacer()
+
+      if account.isCurrent {
+        Text(L10n.currentAccountNow())
+          .font(.caption2)
+          .fontWeight(.medium)
+          .foregroundStyle(.green)
+      } else if let asOf = account.asOfText {
+        Text(asOf)
+          .font(.caption2)
+          .foregroundStyle(.secondary)
+      }
+    }
+  }
+}
+
 /// Visual row for a single quota window with countdown and remaining bar.
 private struct QuotaWindowRowView: View {
   let window: WindowPresentation
+
+  init(window: WindowPresentation) {
+    self.window = window
+  }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 4) {
@@ -128,17 +182,15 @@ private struct QuotaWindowRowView: View {
           .font(.caption)
           .fontWeight(.medium)
 
-        Text(window.isStale ? window.resetsInText : "↻ \(window.resetsInText)")
+        Text(resetsText)
           .font(.caption2)
           .foregroundStyle(.secondary)
 
         Spacer()
 
-        if !window.isStale {
-          Text(window.remainingText)
-            .font(.caption)
-            .fontWeight(.bold)
-        }
+        Text(window.remainingText)
+          .font(.caption)
+          .fontWeight(.bold)
       }
 
       GeometryReader { geo in
@@ -153,21 +205,16 @@ private struct QuotaWindowRowView: View {
           Capsule()
             .fill(Color.secondary.opacity(0.18))
 
-          if window.isStale {
-            Capsule()
-              .fill(Color.secondary.opacity(0.35))
-          } else {
-            Capsule()
-              .fill(barColor)
-              .frame(width: max(0, width * CGFloat(clamped)))
+          Capsule()
+            .fill(barColor)
+            .frame(width: max(0, width * CGFloat(clamped)))
 
-            if let pace = window.pace {
-              let paceX = min(max(width * CGFloat(pace), 0), width)
-              Rectangle()
-                .fill(Color.primary.opacity(0.75))
-                .frame(width: 1.5, height: 8)
-                .offset(x: paceX)
-            }
+          if let pace = window.pace {
+            let paceX = min(max(width * CGFloat(pace), 0), width)
+            Rectangle()
+              .fill(Color.primary.opacity(0.75))
+              .frame(width: 1.5, height: 8)
+              .offset(x: paceX)
           }
         }
       }
@@ -175,9 +222,14 @@ private struct QuotaWindowRowView: View {
     }
     .accessibilityElement(children: .combine)
     .accessibilityLabel(
-      window.isStale
-        ? "\(window.label), \(window.resetsInText)"
-        : "\(window.label), \(window.remainingText), reset \(window.resetsInText)"
+      "\(window.label), \(window.remainingText), \(window.resetsInText)"
     )
+  }
+
+  private var resetsText: String {
+    if window.pace == nil {
+      return window.resetsInText
+    }
+    return "↻ \(window.resetsInText)"
   }
 }

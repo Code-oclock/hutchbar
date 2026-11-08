@@ -21,6 +21,17 @@ enum PanelRenderer {
     await coordinator.stop()
     await collector.value
 
+    // Ask every agent profile once (all targets are due right after creation).
+    let targets = QuotaPoller.defaultTargets(appVersion: HutchbarVersion.current)
+    let poller = QuotaPoller(targets: targets)
+    let pollerUpdates = poller.updates
+    let pollerCollector = Task { @MainActor in
+      for await update in pollerUpdates { store.apply(update, now: Date()) }
+    }
+    for _ in targets { await poller.tick() }
+    await poller.stop()
+    await pollerCollector.value
+
     let scanner = UsageScanner()
     let ledger = await scanner.scanOnce()
     await scanner.stop()

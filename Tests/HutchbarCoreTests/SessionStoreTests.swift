@@ -389,3 +389,32 @@ private let baseTestDate = Date(timeIntervalSince1970: 1_794_081_600)
   #expect(store.sourceStatus[.claudeHooks] == false)
   #expect(store.sourceStatus[.codexSessions] == nil)
 }
+
+@MainActor
+@Test func sessionStore_olderQuotaDoesNotOverwriteNewerQuota() {
+  let store = SessionStore()
+  let newerDate = baseTestDate
+  let olderDate = baseTestDate.addingTimeInterval(-60)
+
+  let newerQuota = AccountQuota(
+    agent: .claudeCode,
+    accountName: "work",
+    windows: [QuotaWindow(windowMinutes: 300, usedPercent: 80.0, resetsAt: nil)],
+    observedAt: newerDate,
+    source: .agentCLI
+  )
+  store.apply(.quota(newerQuota), now: newerDate)
+
+  let olderQuota = AccountQuota(
+    agent: .claudeCode,
+    accountName: "work",
+    windows: [QuotaWindow(windowMinutes: 300, usedPercent: 20.0, resetsAt: nil)],
+    observedAt: olderDate,
+    source: .sessionLog
+  )
+  store.apply(.quota(olderQuota), now: newerDate)
+
+  #expect(store.quotas[newerQuota.id]?.observedAt == newerDate)
+  #expect(store.quotas[newerQuota.id]?.source == .agentCLI)
+  #expect(store.quotas[newerQuota.id]?.windows.first?.usedPercent == 80.0)
+}
