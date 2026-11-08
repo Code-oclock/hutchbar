@@ -81,6 +81,8 @@ public final class JSONLTailReader: CustomStringConvertible, CustomDebugStringCo
   private let clock: any TailClock
   private let maximumLineBytes: Int
   private let maximumReadBytes: Int
+  private let startFromTail: UInt64?
+  private var isFirstPoll = true
   private var identity: FileSnapshot?
   private var offset: UInt64 = 0
   private var pending = Data()
@@ -97,7 +99,8 @@ public final class JSONLTailReader: CustomStringConvertible, CustomDebugStringCo
     fileSystem: any TailFileSystem = LocalTailFileSystem(),
     clock: any TailClock = SystemTailClock(),
     maximumLineBytes: Int = 1_048_576,
-    maximumReadBytes: Int = 65_536
+    maximumReadBytes: Int = 65_536,
+    startFromTail: UInt64? = nil
   ) throws {
     guard maximumLineBytes > 0, maximumReadBytes > 0 else {
       throw TailError.invalidConfiguration
@@ -107,6 +110,7 @@ public final class JSONLTailReader: CustomStringConvertible, CustomDebugStringCo
     self.clock = clock
     self.maximumLineBytes = maximumLineBytes
     self.maximumReadBytes = maximumReadBytes
+    self.startFromTail = startFromTail
   }
 
   public func poll() throws -> TailBatch {
@@ -121,24 +125,52 @@ public final class JSONLTailReader: CustomStringConvertible, CustomDebugStringCo
       {
         resetTail()
       }
+      if isFirstPoll {
+        isFirstPoll = false
+        if let startFromTail, snapshot.size > startFromTail {
+          offset = snapshot.size - startFromTail
+          discarding = true
+        }
+      }
       identity = snapshot
       let data = try file.read(from: offset, count: maximumReadBytes)
       guard data.count <= maximumReadBytes else { throw TailError.ioFailure }
       offset += UInt64(data.count)
       let skippedBefore = skippedLongLines
       var lines: [JSONLLine] = []
-      for byte in data {
-        if byte == 0x0A {
-          if !discarding { lines.append(JSONLLine(bytes: pending)) }
-          pending.removeAll(keepingCapacity: true)
-          discarding = false
-        } else if !discarding {
-          if pending.count == maximumLineBytes {
-            pending.removeAll(keepingCapacity: true)
-            discarding = true
-            skippedLongLines += 1
+      var currentIndex = data.startIndex
+      while currentIndex < data.endIndex {
+        if discarding {
+          if let newlineIndex = data[currentIndex...].firstIndex(of: 0x0A) {
+            discarding = false
+            currentIndex = data.index(after: newlineIndex)
           } else {
-            pending.append(byte)
+            currentIndex = data.endIndex
+          }
+        } else {
+          if let newlineIndex = data[currentIndex...].firstIndex(of: 0x0A) {
+            let chunk = data[currentIndex..<newlineIndex]
+            let availableCapacity = maximumLineBytes - pending.count
+            if chunk.count <= availableCapacity {
+              pending.append(contentsOf: chunk)
+              lines.append(JSONLLine(bytes: pending))
+              pending.removeAll(keepingCapacity: true)
+            } else {
+              pending.removeAll(keepingCapacity: true)
+              skippedLongLines += 1
+            }
+            currentIndex = data.index(after: newlineIndex)
+          } else {
+            let chunk = data[currentIndex...]
+            let availableCapacity = maximumLineBytes - pending.count
+            if chunk.count <= availableCapacity {
+              pending.append(contentsOf: chunk)
+            } else {
+              pending.removeAll(keepingCapacity: true)
+              discarding = true
+              skippedLongLines += 1
+            }
+            currentIndex = data.endIndex
           }
         }
       }
