@@ -6,6 +6,10 @@ import SwiftUI
 struct PanelTrendView: View {
   let usage: UsageViewModel
 
+  init(usage: UsageViewModel) {
+    self.usage = usage
+  }
+
   private var hoveredPointState = SwiftUI.State<UsagePoint?>(initialValue: nil)
 
   private var hoveredPoint: UsagePoint? {

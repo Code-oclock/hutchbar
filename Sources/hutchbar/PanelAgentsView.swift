@@ -39,6 +39,18 @@ private struct PanelAgentRowView: View {
   let onSelect: () -> Void
   let onJump: () -> Void
 
+  init(
+    session: SessionSnapshot,
+    isSelected: Bool,
+    onSelect: @escaping () -> Void,
+    onJump: @escaping () -> Void
+  ) {
+    self.session = session
+    self.isSelected = isSelected
+    self.onSelect = onSelect
+    self.onJump = onJump
+  }
+
   private var notFoundState = SwiftUI.State<Bool>(initialValue: false)
   private var notFoundTaskState = SwiftUI.State<Task<Void, Never>?>(initialValue: nil)
 
