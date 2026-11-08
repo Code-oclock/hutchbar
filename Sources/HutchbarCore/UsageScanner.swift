@@ -39,18 +39,20 @@ public actor UsageScanner {
   public let claudeProjectsRoot: String
   public let codexSessionsRoot: String
   public let qwenUsageRoot: String
+  public let copilotSessionRoot: String
+  public let openCodeDatabasePath: String
   public let rescanInterval: TimeInterval
   public let cutoffDays: Int
 
   private let fileSystem: any TailFileSystem
   let directoryLister: any DirectoryLister
   private let clock: any TailClock
-  private let calendar: Calendar
+  let calendar: Calendar
 
   public nonisolated let snapshots: AsyncStream<UsageLedger>
   private let continuation: AsyncStream<UsageLedger>.Continuation
 
-  private var cache: UsageCacheFile
+  var cache: UsageCacheFile
   /// True when a cache file of another version was found and must be rewritten.
   private var cacheNeedsRewrite = false
   private var isRunning = false
@@ -62,6 +64,8 @@ public actor UsageScanner {
     claudeProjectsRoot: String = SourceCoordinator.Configuration.defaultClaudeProjectsRoot,
     codexSessionsRoot: String = SourceCoordinator.Configuration.defaultCodexSessionsRoot,
     qwenUsageRoot: String = UsageScanner.defaultQwenUsageRoot,
+    copilotSessionRoot: String = UsageScanner.defaultCopilotSessionRoot,
+    openCodeDatabasePath: String = UsageScanner.defaultOpenCodeDatabasePath,
     fileSystem: any TailFileSystem = LocalTailFileSystem(),
     directoryLister: any DirectoryLister = LocalDirectoryLister(),
     clock: any TailClock = SystemTailClock(),
@@ -73,6 +77,8 @@ public actor UsageScanner {
     self.claudeProjectsRoot = claudeProjectsRoot
     self.codexSessionsRoot = codexSessionsRoot
     self.qwenUsageRoot = qwenUsageRoot
+    self.copilotSessionRoot = copilotSessionRoot
+    self.openCodeDatabasePath = openCodeDatabasePath
     self.fileSystem = fileSystem
     self.directoryLister = directoryLister
     self.clock = clock
@@ -134,6 +140,7 @@ public actor UsageScanner {
     let claudeFiles = discoverClaudeFiles(cutoff: cutoff)
     let codexFiles = discoverCodexFiles(cutoff: cutoff, now: now)
     let qwenFiles = discoverQwenFiles(cutoff: cutoff, now: now)
+    let copilotFiles = discoverCopilotFiles(cutoff: cutoff)
 
     var cacheModified = cacheNeedsRewrite
     cacheNeedsRewrite = false
@@ -143,6 +150,10 @@ public actor UsageScanner {
       claudeFiles, agent: .claudeCode, activePaths: &activePaths, cacheModified: &cacheModified)
     recordFiles(codexFiles, agent: .codex, activePaths: &activePaths, cacheModified: &cacheModified)
     recordFiles(qwenFiles, agent: .qwen, activePaths: &activePaths, cacheModified: &cacheModified)
+    recordFiles(
+      copilotFiles, agent: .copilot, activePaths: &activePaths, cacheModified: &cacheModified)
+
+    recordOpenCode(cutoff: cutoff, activePaths: &activePaths, cacheModified: &cacheModified)
 
     let existingPaths = Array(cache.entries.keys)
     for path in existingPaths where !activePaths.contains(path) {
@@ -389,7 +400,9 @@ extension UsageScanner {
     case .qwen:
       var seenIds = Set<String>()
       return parseQwenUsage(lines: lines, seenIds: &seenIds, calendar: calendar)
-    case .antigravity, .opencode, .copilot:
+    case .copilot:
+      return parseCopilotUsage(lines: lines, calendar: calendar)
+    case .antigravity, .opencode:
       return []
     }
   }
