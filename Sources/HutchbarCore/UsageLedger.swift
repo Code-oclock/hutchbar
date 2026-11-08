@@ -120,8 +120,73 @@ public struct UsageLedger: Equatable, Sendable, Codable {
   public private(set) var byDayProviderModel: [DayProviderModelKey: TokenUsage] = [:]
   public private(set) var byDayHour: [DayHourKey: TokenUsage] = [:]
   public private(set) var byDayHourProviderModel: [DayHourProviderModelKey: TokenUsage] = [:]
+  public private(set) var costByDayProviderModel: [DayProviderModelKey: Double] = [:]
+  public private(set) var unpricedTokensByDayProviderModel: [DayProviderModelKey: Int] = [:]
+  public private(set) var costByDayHourProviderModel: [DayHourProviderModelKey: Double] = [:]
+  public private(set) var unpricedTokensByDayHourProviderModel: [DayHourProviderModelKey: Int] = [:]
 
   public init() {}
+
+  enum CodingKeys: String, CodingKey {
+    case byDayProviderModel
+    case byDayHour
+    case byDayHourProviderModel
+    case costByDayProviderModel
+    case unpricedTokensByDayProviderModel
+    case costByDayHourProviderModel
+    case unpricedTokensByDayHourProviderModel
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    byDayProviderModel =
+      try container.decodeIfPresent(
+        [DayProviderModelKey: TokenUsage].self,
+        forKey: .byDayProviderModel
+      ) ?? [:]
+    byDayHour =
+      try container.decodeIfPresent([DayHourKey: TokenUsage].self, forKey: .byDayHour) ?? [:]
+    byDayHourProviderModel =
+      try container.decodeIfPresent(
+        [DayHourProviderModelKey: TokenUsage].self,
+        forKey: .byDayHourProviderModel
+      ) ?? [:]
+    costByDayProviderModel =
+      try container.decodeIfPresent(
+        [DayProviderModelKey: Double].self,
+        forKey: .costByDayProviderModel
+      ) ?? [:]
+    unpricedTokensByDayProviderModel =
+      try container.decodeIfPresent(
+        [DayProviderModelKey: Int].self,
+        forKey: .unpricedTokensByDayProviderModel
+      ) ?? [:]
+    costByDayHourProviderModel =
+      try container.decodeIfPresent(
+        [DayHourProviderModelKey: Double].self,
+        forKey: .costByDayHourProviderModel
+      ) ?? [:]
+    unpricedTokensByDayHourProviderModel =
+      try container.decodeIfPresent(
+        [DayHourProviderModelKey: Int].self,
+        forKey: .unpricedTokensByDayHourProviderModel
+      ) ?? [:]
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(byDayProviderModel, forKey: .byDayProviderModel)
+    try container.encode(byDayHour, forKey: .byDayHour)
+    try container.encode(byDayHourProviderModel, forKey: .byDayHourProviderModel)
+    try container.encode(costByDayProviderModel, forKey: .costByDayProviderModel)
+    try container.encode(
+      unpricedTokensByDayProviderModel, forKey: .unpricedTokensByDayProviderModel)
+    try container.encode(costByDayHourProviderModel, forKey: .costByDayHourProviderModel)
+    try container.encode(
+      unpricedTokensByDayHourProviderModel,
+      forKey: .unpricedTokensByDayHourProviderModel
+    )
+  }
 
   /// Records a single usage event.
   public mutating func record(_ event: UsageEvent) {
@@ -138,6 +203,18 @@ public struct UsageLedger: Equatable, Sendable, Codable {
       model: event.model
     )
     byDayHourProviderModel[detailKey, default: .zero] += event.tokens
+
+    if let eventCost = ModelPriceTable.cost(
+      model: event.model,
+      tokens: event.tokens,
+      isFast: event.isFast
+    ) {
+      costByDayProviderModel[dayKey, default: 0.0] += eventCost
+      costByDayHourProviderModel[detailKey, default: 0.0] += eventCost
+    } else {
+      unpricedTokensByDayProviderModel[dayKey, default: 0] += event.tokens.total
+      unpricedTokensByDayHourProviderModel[detailKey, default: 0] += event.tokens.total
+    }
   }
 
   /// Records an array of usage events.
@@ -147,16 +224,9 @@ public struct UsageLedger: Equatable, Sendable, Codable {
     }
   }
 
-  /// Calculates the USD cost for given tokens and model using ModelPrices.
+  /// Calculates the USD cost for given tokens and model using ModelPriceTable.
   public func cost(for model: String, tokens: TokenUsage) -> Double? {
-    guard let price = ModelPrices.price(for: model) else { return nil }
-    let totalUSD =
-      Double(tokens.input) * price.input
-      + Double(tokens.output) * price.output
-      + Double(tokens.cacheWrite5m) * price.cacheWrite5m
-      + Double(tokens.cacheWrite1h) * price.cacheWrite1h
-      + Double(tokens.cacheRead) * price.cacheRead
-    return totalUSD / 1_000_000.0
+    ModelPriceTable.cost(model: model, tokens: tokens, isFast: false)
   }
 
   /// Calculates the USD cost for given tokens and model.
@@ -166,13 +236,16 @@ public struct UsageLedger: Equatable, Sendable, Codable {
 
   /// Calculates the USD cost for a usage event.
   public func cost(for event: UsageEvent) -> Double? {
-    cost(for: event.model, tokens: event.tokens)
+    ModelPriceTable.cost(model: event.model, tokens: event.tokens, isFast: event.isFast)
   }
 
   /// Calculates total cost for a day-provider-model aggregate entry.
   public func cost(for key: DayProviderModelKey) -> Double? {
-    guard let tokens = byDayProviderModel[key] else { return nil }
-    return cost(for: key.model, tokens: tokens)
+    guard byDayProviderModel[key] != nil else { return nil }
+    if let unpriced = unpricedTokensByDayProviderModel[key], unpriced > 0 {
+      return nil
+    }
+    return costByDayProviderModel[key] ?? 0.0
   }
 
   /// Computes the summary metrics for the given period.
@@ -196,13 +269,14 @@ public struct UsageLedger: Equatable, Sendable, Codable {
       totalTokens += tokens
       tokensByProvider[key.provider, default: .zero] += tokens
 
-      if let entryCost = cost(for: key.model, tokens: tokens) {
+      if let unpriced = unpricedTokensByDayProviderModel[key], unpriced > 0 {
+        unknownModelTokens += unpriced
+        unknownTokensByProvider[key.provider, default: 0] += unpriced
+        hasUnknownModels = true
+      }
+      if let entryCost = costByDayProviderModel[key] {
         totalCost += entryCost
         costByProvider[key.provider, default: 0.0] += entryCost
-      } else {
-        unknownModelTokens += tokens.total
-        unknownTokensByProvider[key.provider, default: 0] += tokens.total
-        hasUnknownModels = true
       }
     }
 
@@ -251,7 +325,7 @@ public struct UsageLedger: Equatable, Sendable, Codable {
         for (key, tokens) in byDayHourProviderModel where key.day == todayStart && key.hour == hour
         {
           hourTokens += tokens
-          if let itemCost = cost(for: key.model, tokens: tokens) {
+          if let itemCost = costByDayHourProviderModel[key] {
             hourCost += itemCost
             hourCostByProvider[key.provider, default: 0.0] += itemCost
           }
@@ -284,7 +358,7 @@ public struct UsageLedger: Equatable, Sendable, Codable {
 
         for (key, tokens) in byDayProviderModel where key.day == dayDate {
           dayTokens += tokens
-          if let itemCost = cost(for: key.model, tokens: tokens) {
+          if let itemCost = costByDayProviderModel[key] {
             dayCost += itemCost
             dayCostByProvider[key.provider, default: 0.0] += itemCost
           }

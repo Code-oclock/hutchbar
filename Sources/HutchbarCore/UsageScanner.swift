@@ -19,10 +19,10 @@ public struct CachedFileUsage: Codable, Sendable, Equatable {
 
 /// Disk cache model for storing scanned transcript token usage.
 public struct UsageCacheFile: Codable, Sendable, Equatable {
-  public var version: Int = 1
+  public var version: Int = 2
   public var entries: [String: CachedFileUsage] = [:]
 
-  public init(version: Int = 1, entries: [String: CachedFileUsage] = [:]) {
+  public init(version: Int = 2, entries: [String: CachedFileUsage] = [:]) {
     self.version = version
     self.entries = entries
   }
@@ -50,6 +50,8 @@ public actor UsageScanner {
   private let continuation: AsyncStream<UsageLedger>.Continuation
 
   private var cache: UsageCacheFile
+  /// True when a cache file of another version was found and must be rewritten.
+  private var cacheNeedsRewrite = false
   private var isRunning = false
   private var isStopped = false
   private var scanTask: Task<Void, Never>?
@@ -75,7 +77,9 @@ public actor UsageScanner {
     self.rescanInterval = rescanInterval
     self.cutoffDays = cutoffDays
 
-    self.cache = Self.loadCache(from: cacheFilePath)
+    let loaded = Self.loadCache(from: cacheFilePath)
+    self.cache = loaded.cache
+    self.cacheNeedsRewrite = loaded.discarded
 
     let (stream, continuation) = AsyncStream.makeStream(
       of: UsageLedger.self,
@@ -127,7 +131,8 @@ public actor UsageScanner {
     let claudeFiles = discoverClaudeFiles(cutoff: cutoff)
     let codexFiles = discoverCodexFiles(cutoff: cutoff, now: now)
 
-    var cacheModified = false
+    var cacheModified = cacheNeedsRewrite
+    cacheNeedsRewrite = false
     var activePaths = Set<String>()
 
     for file in claudeFiles {
@@ -313,15 +318,21 @@ public actor UsageScanner {
 
   // MARK: - Persistence
 
-  private static func loadCache(from path: String) -> UsageCacheFile {
+  /// Loads the cache; `discarded` is true when a file existed but was unreadable or of
+  /// another version, so the next scan rewrites it.
+  private static func loadCache(from path: String) -> (cache: UsageCacheFile, discarded: Bool) {
     let resolved = (path as NSString).expandingTildeInPath
     var statBuf = stat()
-    guard lstat(resolved, &statBuf) == 0 else { return UsageCacheFile() }
-    guard (statBuf.st_mode & S_IFMT) == S_IFREG else { return UsageCacheFile() }
-    guard let data = try? Data(contentsOf: URL(fileURLWithPath: resolved)) else {
-      return UsageCacheFile()
+    guard lstat(resolved, &statBuf) == 0 else { return (UsageCacheFile(version: 2), false) }
+    // Never rewrite through a symlink or other special file.
+    guard (statBuf.st_mode & S_IFMT) == S_IFREG else { return (UsageCacheFile(version: 2), false) }
+    guard let data = try? Data(contentsOf: URL(fileURLWithPath: resolved)),
+      let loaded = try? JSONDecoder().decode(UsageCacheFile.self, from: data),
+      loaded.version == 2
+    else {
+      return (UsageCacheFile(version: 2), true)
     }
-    return (try? JSONDecoder().decode(UsageCacheFile.self, from: data)) ?? UsageCacheFile()
+    return (loaded, false)
   }
 
   private func saveCache() {

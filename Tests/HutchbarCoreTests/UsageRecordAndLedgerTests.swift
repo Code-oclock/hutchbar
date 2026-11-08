@@ -123,17 +123,17 @@ import Testing
 
   #expect(events.count == 3)
   #expect(events[0].model == "claude-opus-5-5")
-  #expect(events[0].tokens.input == 120)
+  #expect(events[0].tokens.input == 60)  // 120 incl. 60 cached
   #expect(events[0].tokens.cacheRead == 60)
   #expect(events[0].tokens.output == 30)
 
   #expect(events[1].model == "claude-opus-5-5")
-  #expect(events[1].tokens.input == 300)
+  #expect(events[1].tokens.input == 200)  // 300 incl. 100 cached
   #expect(events[1].tokens.cacheRead == 100)
   #expect(events[1].tokens.output == 80)
 
   #expect(events[2].model == "claude-opus-5-5")
-  #expect(events[2].tokens.input == 250)
+  #expect(events[2].tokens.input == 180)  // (550-170) - (300-100)
   #expect(events[2].tokens.cacheRead == 70)
   #expect(events[2].tokens.output == 70)
 }
@@ -180,7 +180,7 @@ import Testing
     cacheRead: 2_000_000
   )
 
-  // Pricing from ModelPrices:
+  // Pricing from ModelPriceTable:
   // input: 4.0, output: 20.0, cacheRead: 0.20
   // cacheWrite5m = 4.0 * 1.25 = 5.0
   // cacheWrite1h = 4.0 * 2.0 = 8.0

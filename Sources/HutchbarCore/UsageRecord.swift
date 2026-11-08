@@ -54,19 +54,46 @@ public struct UsageEvent: Equatable, Sendable, Codable {
   /// Local hour of the day (0...23).
   public let hour: Int
   public let tokens: TokenUsage
+  public let isFast: Bool
 
   public init(
     provider: AgentKind,
     model: String,
     day: Date,
     hour: Int,
-    tokens: TokenUsage
+    tokens: TokenUsage,
+    isFast: Bool = false
   ) {
     self.provider = provider
     self.model = model
     self.day = day
     self.hour = hour
     self.tokens = tokens
+    self.isFast = isFast
+  }
+
+  enum CodingKeys: String, CodingKey {
+    case provider, model, day, hour, tokens, isFast
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    provider = try container.decode(AgentKind.self, forKey: .provider)
+    model = try container.decode(String.self, forKey: .model)
+    day = try container.decode(Date.self, forKey: .day)
+    hour = try container.decode(Int.self, forKey: .hour)
+    tokens = try container.decode(TokenUsage.self, forKey: .tokens)
+    isFast = try container.decodeIfPresent(Bool.self, forKey: .isFast) ?? false
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(provider, forKey: .provider)
+    try container.encode(model, forKey: .model)
+    try container.encode(day, forKey: .day)
+    try container.encode(hour, forKey: .hour)
+    try container.encode(tokens, forKey: .tokens)
+    try container.encode(isFast, forKey: .isFast)
   }
 }
 
@@ -74,10 +101,16 @@ public struct UsageEvent: Equatable, Sendable, Codable {
 public struct CodexUsageState: Equatable, Sendable {
   public var lastModel: String?
   public var lastTotalUsage: TokenUsage?
+  public var lastServiceTier: String?
 
-  public init(lastModel: String? = nil, lastTotalUsage: TokenUsage? = nil) {
+  public init(
+    lastModel: String? = nil,
+    lastTotalUsage: TokenUsage? = nil,
+    lastServiceTier: String? = nil
+  ) {
     self.lastModel = lastModel
     self.lastTotalUsage = lastTotalUsage
+    self.lastServiceTier = lastServiceTier
   }
 }
 
@@ -144,10 +177,18 @@ public func parseClaudeUsage(
       cacheRead: cacheRead
     )
 
+    let isFast = message.usage?.speed == "fast"
     let day = calendar.startOfDay(for: date)
     let hour = calendar.component(.hour, from: date)
     events.append(
-      UsageEvent(provider: .claudeCode, model: model, day: day, hour: hour, tokens: tokens)
+      UsageEvent(
+        provider: .claudeCode,
+        model: model,
+        day: day,
+        hour: hour,
+        tokens: tokens,
+        isFast: isFast
+      )
     )
   }
 
@@ -187,6 +228,18 @@ public func parseCodexUsage(
       state.lastModel = candidateModel
     }
 
+    if let candidateTier = record.payload?.serviceTier
+      ?? record.payload?.turnContext?.serviceTier
+      ?? record.turnContext?.serviceTier
+      ?? record.serviceTier
+      ?? record.payload?.threadSettingsApplied?.serviceTier,
+      !candidateTier.isEmpty
+    {
+      state.lastServiceTier = candidateTier.lowercased().trimmingCharacters(
+        in: .whitespacesAndNewlines
+      )
+    }
+
     let isTokenCount =
       record.type == "token_count"
       || record.payload?.type == "token_count"
@@ -212,41 +265,21 @@ public func parseCodexUsage(
 
     let tokens: TokenUsage
     if let lastUsage {
-      let input = lastUsage.inputTokens ?? 0
-      let output = lastUsage.outputTokens ?? 0
-      let cached = lastUsage.cachedInputTokens ?? 0
-      tokens = TokenUsage(
-        input: input,
-        output: output,
-        cacheWrite5m: 0,
-        cacheWrite1h: 0,
-        cacheRead: cached
-      )
+      tokens = lastUsage.tokenUsage
       if let totalUsage {
-        state.lastTotalUsage = TokenUsage(
-          input: totalUsage.inputTokens ?? 0,
-          output: totalUsage.outputTokens ?? 0,
-          cacheWrite5m: 0,
-          cacheWrite1h: 0,
-          cacheRead: totalUsage.cachedInputTokens ?? 0
-        )
+        state.lastTotalUsage = totalUsage.tokenUsage
       }
     } else if let totalUsage {
-      let currentTotal = TokenUsage(
-        input: totalUsage.inputTokens ?? 0,
-        output: totalUsage.outputTokens ?? 0,
-        cacheWrite5m: 0,
-        cacheWrite1h: 0,
-        cacheRead: totalUsage.cachedInputTokens ?? 0
-      )
+      let currentTotal = totalUsage.tokenUsage
       let previousTotal = state.lastTotalUsage ?? .zero
       let deltaInput = max(0, currentTotal.input - previousTotal.input)
       let deltaOutput = max(0, currentTotal.output - previousTotal.output)
       let deltaCached = max(0, currentTotal.cacheRead - previousTotal.cacheRead)
+      let deltaWrite = max(0, currentTotal.cacheWrite5m - previousTotal.cacheWrite5m)
       tokens = TokenUsage(
         input: deltaInput,
         output: deltaOutput,
-        cacheWrite5m: 0,
+        cacheWrite5m: deltaWrite,
         cacheWrite1h: 0,
         cacheRead: deltaCached
       )
@@ -257,11 +290,19 @@ public func parseCodexUsage(
 
     guard tokens.total > 0 else { continue }
 
+    let isFast = state.lastServiceTier == "fast" || state.lastServiceTier == "priority"
     let model = state.lastModel ?? "unknown"
     let day = calendar.startOfDay(for: date)
     let hour = calendar.component(.hour, from: date)
     events.append(
-      UsageEvent(provider: .codex, model: model, day: day, hour: hour, tokens: tokens)
+      UsageEvent(
+        provider: .codex,
+        model: model,
+        day: day,
+        hour: hour,
+        tokens: tokens,
+        isFast: isFast
+      )
     )
   }
 
@@ -288,6 +329,7 @@ private struct ClaudeUsageDetails: Decodable {
   let cacheReadInputTokens: Int?
   let cacheCreationInputTokens: Int?
   let cacheCreation: ClaudeCacheCreationDetails?
+  let speed: String?
 
   enum CodingKeys: String, CodingKey {
     case inputTokens = "input_tokens"
@@ -295,6 +337,7 @@ private struct ClaudeUsageDetails: Decodable {
     case cacheReadInputTokens = "cache_read_input_tokens"
     case cacheCreationInputTokens = "cache_creation_input_tokens"
     case cacheCreation = "cache_creation"
+    case speed
   }
 }
 
@@ -315,11 +358,13 @@ private struct CodexUsageRecord: Decodable {
   let model: String?
   let turnContext: CodexNestedModel?
   let info: CodexUsageInfo?
+  let serviceTier: String?
 
   enum CodingKeys: String, CodingKey {
     case type, timestamp, payload, model
     case turnContext = "turn_context"
     case info
+    case serviceTier = "service_tier"
   }
 }
 
@@ -330,6 +375,8 @@ private struct CodexUsagePayload: Decodable {
   let info: CodexUsageInfo?
   let lastTokenUsage: CodexUsageTokens?
   let totalTokenUsage: CodexUsageTokens?
+  let serviceTier: String?
+  let threadSettingsApplied: CodexThreadSettings?
 
   enum CodingKeys: String, CodingKey {
     case type, model
@@ -337,11 +384,27 @@ private struct CodexUsagePayload: Decodable {
     case info
     case lastTokenUsage = "last_token_usage"
     case totalTokenUsage = "total_token_usage"
+    case serviceTier = "service_tier"
+    case threadSettingsApplied = "thread_settings_applied"
   }
 }
 
 private struct CodexNestedModel: Decodable {
   let model: String?
+  let serviceTier: String?
+
+  enum CodingKeys: String, CodingKey {
+    case model
+    case serviceTier = "service_tier"
+  }
+}
+
+private struct CodexThreadSettings: Decodable {
+  let serviceTier: String?
+
+  enum CodingKeys: String, CodingKey {
+    case serviceTier = "service_tier"
+  }
 }
 
 private struct CodexUsageInfo: Decodable {
@@ -358,11 +421,27 @@ private struct CodexUsageTokens: Decodable {
   let inputTokens: Int?
   let cachedInputTokens: Int?
   let outputTokens: Int?
+  let cacheWriteInputTokens: Int?
 
   enum CodingKeys: String, CodingKey {
     case inputTokens = "input_tokens"
     case cachedInputTokens = "cached_input_tokens"
     case outputTokens = "output_tokens"
+    case cacheWriteInputTokens = "cache_write_input_tokens"
+  }
+
+  /// OpenAI counts cached and cache-written tokens inside `input_tokens`
+  /// (`total_tokens == input_tokens + output_tokens`), so only the remainder is fresh input.
+  var tokenUsage: TokenUsage {
+    let cached = cachedInputTokens ?? 0
+    let written = cacheWriteInputTokens ?? 0
+    return TokenUsage(
+      input: max(0, (inputTokens ?? 0) - cached - written),
+      output: outputTokens ?? 0,
+      cacheWrite5m: written,
+      cacheWrite1h: 0,
+      cacheRead: cached
+    )
   }
 }
 
