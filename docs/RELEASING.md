@@ -25,23 +25,47 @@ configured **PR-only** bypass to merge that PR. Do not weaken required checks gl
 push directly to main. Code changes must pass CI. An always-reporting path gate is a
 possible future improvement if the docs-only bypass becomes inconvenient.
 
-## Optional Developer ID credentials
+## Signing credentials
 
-With **all** these environment secrets, the build imports Developer ID into a temporary
-runner keychain, uses secure timestamps, notarizes/staples the app before ZIP/DMG packaging,
-then signs and notarizes/staples the DMG:
+The build picks one of three modes from the `release` environment secrets:
 
-- SIGNING_CERT_P12: base64 PKCS#12 containing certificate and private key.
-- SIGNING_CERT_PASSWORD: PKCS#12 password.
-- SIGNING_IDENTITY: full `Developer ID Application: ...` identity name.
-- NOTARY_API_KEY_P8: raw App Store Connect API private-key PEM.
-- NOTARY_KEY_ID and NOTARY_ISSUER_ID: API key identifiers.
+| Secrets present | Result |
+| --- | --- |
+| none | **ad-hoc** build, release notes get an «Unsigned build» block |
+| `SIGNING_CERT_P12`, `SIGNING_CERT_PASSWORD`, `SIGNING_IDENTITY` (not Developer ID) | **self-signed** build, notes carry the certificate SHA-256 |
+| the same with a `Developer ID Application: ...` identity **and** `NOTARY_API_KEY_P8`, `NOTARY_KEY_ID`, `NOTARY_ISSUER_ID` | **notarized** build: secure timestamp, app and DMG notarized and stapled |
 
-Only the environment-protected build job receives these secrets. Incomplete/absent
-credentials produce an ad-hoc build with an automatic **Unsigned build** release-notes
-block; failed signing or notarization with complete credentials fails the release.
-No credentials, keychains, or temporary P8/P12 files are uploaded. Signing keychain cleanup
-runs even after failure. Never put credentials in a repository or issue.
+A Developer ID identity without the notary secrets falls back to ad-hoc with a notice.
+Secrets: `SIGNING_CERT_P12` is a base64 PKCS#12 with certificate and private key,
+`SIGNING_CERT_PASSWORD` its password, `SIGNING_IDENTITY` the identity name, `NOTARY_API_KEY_P8`
+the raw App Store Connect key PEM, `NOTARY_KEY_ID` and `NOTARY_ISSUER_ID` its identifiers.
+
+Only the environment-protected build job receives them. The signing keychain lives in a
+temporary runner keychain, removed even after failure; no credentials or temporary P8/P12 files
+are uploaded. Failed signing or notarization with complete credentials fails the release.
+Never put credentials in a repository or issue.
+
+### Self-signed release certificate
+
+An ad-hoc signature changes with every build, so macOS forgets notification and Automation
+permissions (the app drives terminals through Apple Events) after each update. A stable
+self-signed certificate keeps the designated requirement the same across releases. It does
+not remove the Gatekeeper warning and does not prove who published the app.
+
+Once: `Tools/make-release-cert.sh <new-directory-outside-the-repo>` creates a 10-year
+certificate, a PKCS#12 file and a password, and prints the `gh secret set` commands. Run those
+commands yourself, back the directory up in a password manager and never commit it. Losing the
+key only means making a new certificate and a one-time permission reset for users. Record the
+printed SHA-256 in a place users can compare (each release's notes repeat it).
+
+Check a download against it:
+
+```sh
+codesign -d --extract-certificates=/tmp/hutchbar-cert /Applications/Hutchbar.app
+openssl x509 -inform der -in /tmp/hutchbar-cert0 -noout -fingerprint -sha256
+```
+
+The first release signed this way changes the app's identity, so macOS asks again once.
 
 For local stable identity only, explicitly run `Tools/setup-signing.sh`, accept the login
 keychain trust prompt if macOS asks, and use the printed HUTCHBAR_SIGN_IDENTITY export.

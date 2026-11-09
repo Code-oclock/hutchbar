@@ -56,14 +56,24 @@ jobs:
           NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
         run: |
           set -euo pipefail
-          if [[ -n "$SIGNING_CERT_P12" && -n "$SIGNING_CERT_PASSWORD" && -n "$SIGNING_IDENTITY" && -n "$NOTARY_API_KEY_P8" && -n "$NOTARY_KEY_ID" && -n "$NOTARY_ISSUER_ID" ]]; then
-            echo 'enabled=true' >> "$GITHUB_OUTPUT"
+          cert=false; notary=false
+          if [[ -n "$SIGNING_CERT_P12" && -n "$SIGNING_CERT_PASSWORD" && -n "$SIGNING_IDENTITY" ]]; then cert=true; fi
+          if [[ -n "$NOTARY_API_KEY_P8" && -n "$NOTARY_KEY_ID" && -n "$NOTARY_ISSUER_ID" ]]; then notary=true; fi
+          kind=adhoc
+          if [[ "$cert" == true && "$SIGNING_IDENTITY" == 'Developer ID Application: '* ]]; then
+            if [[ "$notary" == true ]]; then
+              kind=notarized
+            else
+              echo '::notice::Developer ID needs the notarization credentials too; building ad-hoc.'
+            fi
+          elif [[ "$cert" == true ]]; then
+            kind=self-signed
           else
-            echo 'enabled=false' >> "$GITHUB_OUTPUT"
-            echo '::notice::Signing credentials incomplete or absent; building ad-hoc without notarization.'
+            echo '::notice::Signing credentials absent; building ad-hoc without notarization.'
           fi
-      - name: Import Developer ID
-        if: steps.signing.outputs.enabled == 'true'
+          echo "kind=$kind" >> "$GITHUB_OUTPUT"
+      - name: Import signing certificate
+        if: steps.signing.outputs.kind != 'adhoc'
         env:
           SIGNING_CERT_P12: ${{ secrets.SIGNING_CERT_P12 }}
           SIGNING_CERT_PASSWORD: ${{ secrets.SIGNING_CERT_PASSWORD }}
@@ -71,7 +81,7 @@ jobs:
         run: ./Tools/ci-setup-signing.sh
       - run: ./build.sh --release --selftest
       - name: Notarize app
-        if: steps.signing.outputs.enabled == 'true'
+        if: steps.signing.outputs.kind == 'notarized'
         env:
           NOTARY_API_KEY_P8: ${{ secrets.NOTARY_API_KEY_P8 }}
           NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
@@ -85,7 +95,7 @@ jobs:
           version=${GITHUB_REF_NAME#v}
           ditto -c -k --keepParent build/Hutchbar.app "dist/Hutchbar-$version.zip"
       - name: Sign and notarize DMG
-        if: steps.signing.outputs.enabled == 'true'
+        if: steps.signing.outputs.kind == 'notarized'
         env:
           NOTARY_API_KEY_P8: ${{ secrets.NOTARY_API_KEY_P8 }}
           NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
@@ -104,7 +114,7 @@ jobs:
           syft scan dir:build/Hutchbar.app -o "spdx-json=dist/Hutchbar-${GITHUB_REF_NAME#v}.spdx.json"
       - name: Notes and checksums
         env:
-          SIGNED_BUILD: ${{ steps.signing.outputs.enabled }}
+          BUILD_KIND: ${{ steps.signing.outputs.kind }}
         run: |
           set -euo pipefail
           python3 Tools/release-notes.py
