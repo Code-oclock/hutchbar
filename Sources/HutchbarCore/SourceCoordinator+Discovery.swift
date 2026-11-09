@@ -57,6 +57,28 @@ extension SourceCoordinator {
     }
   }
 
+  func enumerateCopilotFiles(
+    into discovered: inout [String: (file: FileMetadata, agent: AgentKind)]
+  ) {
+    let root = (configuration.copilotSessionRoot as NSString).expandingTildeInPath
+    guard let sessionDirs = try? directoryLister.contentsOfDirectory(atPath: root) else {
+      return
+    }
+    for sessionDir in sessionDirs where sessionDir.isDirectory {
+      let dirName = URL(fileURLWithPath: sessionDir.path).lastPathComponent
+      guard !dirName.hasPrefix(".") else { continue }
+      guard let files = try? directoryLister.contentsOfDirectory(atPath: sessionDir.path) else {
+        continue
+      }
+      for file in files where !file.isDirectory {
+        let fileName = URL(fileURLWithPath: file.path).lastPathComponent
+        if fileName == "events.jsonl" {
+          discovered[file.path] = (file, .copilot)
+        }
+      }
+    }
+  }
+
   func codexDayPaths(root: String, now: Date) -> [String] {
     let resolvedRoot = (root as NSString).expandingTildeInPath
     var paths: [String] = []

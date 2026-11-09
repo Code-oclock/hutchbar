@@ -82,6 +82,10 @@ extension SourceKind {
       return "Antigravity usage"
     case .copilotUsage:
       return L10n.currentLanguage() == .ru ? "Copilot: лимиты" : "Copilot: limits"
+    case .copilotSessions:
+      return (L10n.currentLanguage() == .ru) ? "Copilot: сессии" : "Copilot: sessions"
+    case .openCodeSessions:
+      return (L10n.currentLanguage() == .ru) ? "OpenCode: сессии" : "OpenCode: sessions"
     }
   }
 }

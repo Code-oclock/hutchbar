@@ -181,4 +181,6 @@ public enum SourceKind: String, CaseIterable, Sendable, Codable {
   case codexUsage
   case antigravityUsage
   case copilotUsage
+  case copilotSessions
+  case openCodeSessions
 }
