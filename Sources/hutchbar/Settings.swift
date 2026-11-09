@@ -80,6 +80,8 @@ extension SourceKind {
       return "Codex usage"
     case .antigravityUsage:
       return "Antigravity usage"
+    case .copilotUsage:
+      return L10n.currentLanguage() == .ru ? "Copilot: лимиты" : "Copilot: limits"
     }
   }
 }

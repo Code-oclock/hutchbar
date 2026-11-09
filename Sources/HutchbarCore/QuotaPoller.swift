@@ -35,6 +35,15 @@ public enum QuotaProbeFailure: Error, Equatable, Sendable {
     case .malformed: self = .malformed
     }
   }
+
+  public init(_ copilotFailure: CopilotQuotaProbe.Failure) {
+    switch copilotFailure {
+    case .missing: self = .missing
+    case .needsSignIn: self = .needsSignIn
+    case .unreachable: self = .unreachable
+    case .malformed: self = .malformed
+    }
+  }
 }
 
 /// An individual account quota probe target.
@@ -326,6 +335,31 @@ extension QuotaPoller {
         source: .antigravityUsage,
         read: { date in
           let result = await antigravityProbe.read(now: date)
+          return result.mapError { QuotaProbeFailure($0) }
+        }
+      )
+      targets.append(target)
+    }
+
+    let fileManager = FileManager.default
+    let home = fileManager.homeDirectoryForCurrentUser.path
+    let copilotDir = (home as NSString).appendingPathComponent(".copilot")
+    let githubCopilotConfigDir = (home as NSString).appendingPathComponent(".config/github-copilot")
+    var isDir1: ObjCBool = false
+    var isDir2: ObjCBool = false
+    let copilotInstalled =
+      (fileManager.fileExists(atPath: copilotDir, isDirectory: &isDir1) && isDir1.boolValue)
+      || (fileManager.fileExists(atPath: githubCopilotConfigDir, isDirectory: &isDir2)
+        && isDir2.boolValue)
+
+    if copilotInstalled {
+      let copilotProbe = CopilotQuotaProbe(appVersion: appVersion)
+      let target = QuotaProbeTarget(
+        id: "copilot:github",
+        agent: .copilot,
+        source: .copilotUsage,
+        read: { date in
+          let result = await copilotProbe.read(now: date)
           return result.mapError { QuotaProbeFailure($0) }
         }
       )

@@ -13,6 +13,8 @@ public enum AgentKind: String, CaseIterable, Sendable, Codable {
   case opencode
   /// GitHub Copilot CLI (`copilot`).
   case copilot
+  /// Google Gemini CLI (`gemini`).
+  case geminiCLI
 }
 
 /// What kind of child relationship produces a nested session.
@@ -118,6 +120,8 @@ public enum QuotaSource: String, CaseIterable, Sendable, Codable {
   case ccr
   /// The Claude desktop app's usage history.
   case claudeApp
+  /// Queried the agent's remote service API over the network.
+  case serviceAPI
 }
 
 /// Quota of one account at the moment it was observed.
@@ -176,4 +180,5 @@ public enum SourceKind: String, CaseIterable, Sendable, Codable {
   case claudeUsage
   case codexUsage
   case antigravityUsage
+  case copilotUsage
 }
