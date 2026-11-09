@@ -112,6 +112,10 @@ public final class Settings {
   public var onQuietAfterChange: ((TimeInterval?) -> Void)?
   public var onEnabledSourcesChange: ((Set<SourceKind>) -> Void)?
   public var onUsagePeriodChange: ((UsagePeriod) -> Void)?
+  public var onNotificationsChange: (@MainActor (Bool) -> Void)?
+  public var onCheckNotificationAuthorization: (@MainActor () async -> Void)?
+
+  public var notificationsDenied = false
 
   public var language: L10n.InterfaceLanguage {
     didSet {
@@ -165,6 +169,7 @@ public final class Settings {
   public var notifications: Bool {
     didSet {
       userDefaults.set(notifications, forKey: Keys.notifications)
+      onNotificationsChange?(notifications)
     }
   }
 
@@ -228,7 +233,11 @@ public final class Settings {
     }
 
     self.showFinished = userDefaults.bool(forKey: Keys.showFinished)
-    self.notifications = userDefaults.bool(forKey: Keys.notifications)
+    if let storedNotifications = userDefaults.object(forKey: Keys.notifications) as? Bool {
+      self.notifications = storedNotifications
+    } else {
+      self.notifications = true
+    }
 
     if let storedPeriod = userDefaults.string(forKey: Keys.usagePeriod),
       let period = UsagePeriod(rawValue: storedPeriod)
@@ -281,7 +290,12 @@ struct SettingsView: View {
             Text(threshold.title).tag(threshold)
           }
         }
-        Toggle("System notifications", isOn: $settings.notifications)
+        Toggle(L10n.systemNotificationsToggle(), isOn: $settings.notifications)
+        if settings.notificationsDenied {
+          Text(L10n.notificationsDisabledInSystemSettings())
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
       }
 
       Section("Sessions") {
@@ -323,6 +337,9 @@ struct SettingsView: View {
     .formStyle(.grouped)
     .frame(width: 440)
     .padding()
+    .task {
+      await settings.onCheckNotificationAuthorization?()
+    }
   }
 }
 

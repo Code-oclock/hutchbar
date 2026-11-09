@@ -12,6 +12,7 @@ final class AppController {
   public let poller: QuotaPoller
   private let coordinator: SourceCoordinator
   private let attention: AttentionPillController
+  private let notifications: NotificationController
 
   private var updatesTask: Task<Void, Never>?
   private var pollerTask: Task<Void, Never>?
@@ -59,6 +60,11 @@ final class AppController {
       TerminalJumper.jump(to: session)
     }
 
+    self.notifications = NotificationController(
+      store: store,
+      settings: settings
+    )
+
     settings.onShowFinishedChange = { [weak store] show in
       store?.showFinished = show
     }
@@ -97,6 +103,7 @@ final class AppController {
           now: Date(),
           thresholdSeconds: self.settings.pillThresholdSeconds
         )
+        self.notifications.evaluate(now: Date())
       }
     }
 
@@ -130,6 +137,7 @@ final class AppController {
           now: now,
           thresholdSeconds: self.settings.pillThresholdSeconds
         )
+        self.notifications.evaluate(now: now)
       }
     }
     RunLoop.main.add(scheduledTimer, forMode: .common)
@@ -168,6 +176,7 @@ final class AppController {
     TerminalJumper.pidLookup = nil
 
     attention.stop()
+    notifications.stop()
 
     let coordinator = self.coordinator
     let scanner = self.scanner
