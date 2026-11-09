@@ -17,6 +17,8 @@ struct PanelView: View {
   private var selectedSessionIdState = SwiftUI.State<String?>(initialValue: nil)
   private var copiedHooksState = SwiftUI.State<Bool>(initialValue: false)
   private var copyTaskState = SwiftUI.State<Task<Void, Never>?>(initialValue: nil)
+  private var hooksStatusState = SwiftUI.State<HooksStatus>(initialValue: .notInstalled)
+  private var lastHooksCheckState = SwiftUI.State<Date?>(initialValue: nil)
   @FocusState private var isFocused: Bool
 
   private var selectedSessionId: String? {
@@ -32,6 +34,16 @@ struct PanelView: View {
   private var copyTask: Task<Void, Never>? {
     get { copyTaskState.wrappedValue }
     nonmutating set { copyTaskState.wrappedValue = newValue }
+  }
+
+  fileprivate var hooksStatus: HooksStatus {
+    get { hooksStatusState.wrappedValue }
+    nonmutating set { hooksStatusState.wrappedValue = newValue }
+  }
+
+  fileprivate var lastHooksCheck: Date? {
+    get { lastHooksCheckState.wrappedValue }
+    nonmutating set { lastHooksCheckState.wrappedValue = newValue }
   }
 
   init(
@@ -79,7 +91,8 @@ struct PanelView: View {
 
       Divider()
       PanelFooterView(
-        hooksInstalled: store.sourceStatus[.claudeHooks] == true,
+        hooksStatus: hooksStatus,
+        onInstallHooks: installHooksWithConfirmation,
         onCopyHooks: copyHooksConfiguration,
         copied: copiedHooks,
         onOpenSettings: onOpenSettings
@@ -110,6 +123,7 @@ struct PanelView: View {
       if selectedSessionId == nil {
         selectedSessionId = selectableSessions.first?.id
       }
+      refreshHooksStatus(force: false)
     }
     .onDisappear {
       copyTask?.cancel()
@@ -259,5 +273,66 @@ struct PanelView: View {
       RoundedRectangle(cornerRadius: 6)
         .fill(Color.secondary.opacity(0.1))
     )
+  }
+}
+
+// MARK: - Hooks Management Extension
+
+extension PanelView {
+  fileprivate func refreshHooksStatus(force: Bool = false) {
+    let now = Date()
+    if !force, let lastCheck = lastHooksCheck, now.timeIntervalSince(lastCheck) < 3.0 {
+      return
+    }
+    let defaultDir = ClaudeHooksInstaller.defaultSettingsDirectory()
+    hooksStatus = ClaudeHooksInstaller.status(at: defaultDir)
+    lastHooksCheck = now
+  }
+
+  fileprivate func installHooksWithConfirmation() {
+    let profileDirs = ClaudeHooksInstaller.discoveredProfileDirectories()
+    let binaryPath = HutchbarApp.currentExecutablePath()
+    let command =
+      "\(ClaudeHooksInstaller.shellQuoted(binaryPath))\(ClaudeHooksInstaller.hookSuffix)"
+
+    let alert = NSAlert()
+    alert.messageText = L10n.installHooksConfirmationTitle()
+    alert.informativeText = L10n.installHooksConfirmationMessage(
+      profiles: profileDirs,
+      command: command
+    )
+    alert.addButton(withTitle: L10n.installHooks())
+    alert.addButton(withTitle: L10n.cancel())
+    alert.alertStyle = .informational
+
+    let response = alert.runModal()
+    guard response == .alertFirstButtonReturn else { return }
+
+    var reports: [InstallReport] = []
+    var errors: [String] = []
+
+    for dir in profileDirs {
+      do {
+        let report = try ClaudeHooksInstaller.install(at: dir, binaryPath: binaryPath)
+        reports.append(report)
+      } catch {
+        errors.append("\(dir): \(error.localizedDescription)")
+      }
+    }
+
+    refreshHooksStatus(force: true)
+
+    let summaryAlert = NSAlert()
+    if errors.isEmpty {
+      summaryAlert.alertStyle = .informational
+      summaryAlert.messageText = L10n.installHooksSuccessTitle()
+      summaryAlert.informativeText = L10n.installHooksSuccessMessage(reports: reports)
+    } else {
+      summaryAlert.alertStyle = .warning
+      summaryAlert.messageText = L10n.installHooksErrorTitle()
+      summaryAlert.informativeText = L10n.installHooksErrorMessage(errors: errors)
+    }
+    summaryAlert.addButton(withTitle: L10n.ok())
+    summaryAlert.runModal()
   }
 }
