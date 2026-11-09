@@ -121,6 +121,9 @@ public actor SourceCoordinator {
     let agent: AgentKind
     var snapshot: SessionSnapshot?
     var lastQuota: AccountQuota?
+    /// Codex only: close the session when its `codex` process exits (terminal CLI).
+    /// False for Codex Desktop and IDE sessions, which share one app-server process.
+    var endsWithProcess = true
 
     init(reader: JSONLTailReader, agent: AgentKind) {
       self.reader = reader
@@ -277,6 +280,10 @@ public actor SourceCoordinator {
           startFromTail: 262_144
         )
         let newTracked = TrackedSession(reader: reader, agent: item.agent)
+        if item.agent == .codex {
+          newTracked.endsWithProcess = CodexOriginator.endsWithProcess(
+            path: path, fileSystem: fileSystem)
+        }
         trackedSessions[path] = newTracked
         tracked = newTracked
       } catch {
