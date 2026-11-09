@@ -47,14 +47,17 @@ struct HutchbarApp {
       print(generateHooksConfiguration(binaryPath: executable))
       return
     }
-    if let index = arguments.firstIndex(of: "--render-panel"),
-      arguments.index(after: index) < arguments.endIndex
-    {
-      let path = arguments[arguments.index(after: index)]
-      Task { @MainActor in
-        exit(await PanelRenderer.render(to: path) ? 0 : 1)
+    if let index = arguments.firstIndex(of: "--render-panel") {
+      // The PNG path follows the flag; `--demo` may stand anywhere.
+      let afterFlag = arguments[arguments.index(after: index)...]
+        .filter { $0 != "--demo" && $0 != "--lang" && $0 != "en" && $0 != "ru" }
+      if let path = afterFlag.first {
+        let isDemo = arguments.contains("--demo")
+        Task { @MainActor in
+          exit(await PanelRenderer.render(to: path, demo: isDemo) ? 0 : 1)
+        }
+        RunLoop.main.run()
       }
-      RunLoop.main.run()
     }
     if let index = arguments.firstIndex(of: "--render-icon"),
       arguments.index(after: index) < arguments.endIndex
@@ -85,7 +88,7 @@ struct HutchbarApp {
     }
     guard arguments.isEmpty else {
       fputs(
-        "Usage: hutchbar [--hook | --print-hooks | --probe-limits | --render-panel <png>"
+        "Usage: hutchbar [--hook | --print-hooks | --probe-limits | --render-panel <png> [--demo] [--lang en|ru]"
           + " | --render-icon <dir> | --selftest | --version]\n",
         stderr)
       exit(64)

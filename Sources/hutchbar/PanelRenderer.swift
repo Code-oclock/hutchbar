@@ -3,13 +3,63 @@ import AppKit
 import HutchbarCore
 import SwiftUI
 
-/// Debug/docs helper: `hutchbar --render-panel out.png` polls the sources once
-/// and renders the panel to a PNG without showing any window.
+/// Debug/docs helper: `hutchbar --render-panel out.png [--demo]` polls sources or
+/// populates demo data and renders the panel to a PNG without showing any window.
 @MainActor
 enum PanelRenderer {
-  static func render(to path: String, polls: Int = 40) async -> Bool {
+  static func render(to path: String, polls: Int = 40, demo: Bool = false) async -> Bool {
     _ = Settings()  // applies the stored interface language
+    // `--lang en|ru` overrides it for this render only (README screenshots).
+    let arguments = CommandLine.arguments
+    if let flag = arguments.firstIndex(of: "--lang"), flag + 1 < arguments.count,
+      let language = L10n.InterfaceLanguage(rawValue: arguments[flag + 1])
+    {
+      L10n.preference = language
+    }
     let store = SessionStore()
+    let usage: UsageViewModel
+    let initialHooksStatus: HooksStatus?
+
+    if demo {
+      let calendar = Calendar.current
+      let now = calendar.dateInterval(of: .hour, for: Date())?.start ?? Date()
+      let ledger = DemoData.populate(store: store, now: now)
+      usage = UsageViewModel(ledger: ledger)
+      initialHooksStatus = .installed
+    } else {
+      let live = await populateLive(store: store, polls: polls)
+      usage = live.usage
+      initialHooksStatus = live.initialHooksStatus
+    }
+
+    let statusMsg =
+      "waiting=\(store.waiting.count) working=\(store.working.count) quotas=\(store.quotas.count)\n"
+    FileHandle.standardError.write(Data(statusMsg.utf8))
+    let content = PanelView(
+      store: store,
+      usage: usage,
+      onJump: { _ in },
+      onClose: nil,
+      onOpenSettings: {},
+      scrollable: false,
+      initialHooksStatus: initialHooksStatus
+    )
+    .frame(width: 560)
+    .background(Color(nsColor: .windowBackgroundColor))
+    let renderer = ImageRenderer(content: content)
+    renderer.scale = 2
+    guard let image = renderer.nsImage,
+      let tiff = image.tiffRepresentation,
+      let bitmap = NSBitmapImageRep(data: tiff),
+      let png = bitmap.representation(using: .png, properties: [:])
+    else { return false }
+    return (try? png.write(to: URL(fileURLWithPath: path))) != nil
+  }
+
+  private static func populateLive(
+    store: SessionStore,
+    polls: Int
+  ) async -> (usage: UsageViewModel, initialHooksStatus: HooksStatus?) {
     TerminalJumper.pidLookup = { [weak store] session in store?.pid(for: session.sessionKey) }
     defer { TerminalJumper.pidLookup = nil }
     let coordinator = SourceCoordinator()
@@ -21,7 +71,6 @@ enum PanelRenderer {
     await coordinator.stop()
     await collector.value
 
-    // Ask every agent profile once (all targets are due right after creation).
     let targets = QuotaPoller.defaultTargets(appVersion: HutchbarVersion.current)
     let poller = QuotaPoller(targets: targets)
     let pollerUpdates = poller.updates
@@ -35,7 +84,6 @@ enum PanelRenderer {
     let scanner = UsageScanner()
     let ledger = await scanner.scanOnce()
     await scanner.stop()
-    let usage = UsageViewModel(ledger: ledger)
 
     let nesting = ProcessNesting.children(
       sessions: store.allSessions,
@@ -45,26 +93,6 @@ enum PanelRenderer {
     )
     store.applyNesting(nesting)
 
-    let statusMsg =
-      "waiting=\(store.waiting.count) working=\(store.working.count) quotas=\(store.quotas.count)\n"
-    FileHandle.standardError.write(Data(statusMsg.utf8))
-    let content = PanelView(
-      store: store,
-      usage: usage,
-      onJump: { _ in },
-      onClose: nil,
-      onOpenSettings: {},
-      scrollable: false
-    )
-    .frame(width: 560)
-    .background(Color(nsColor: .windowBackgroundColor))
-    let renderer = ImageRenderer(content: content)
-    renderer.scale = 2
-    guard let image = renderer.nsImage,
-      let tiff = image.tiffRepresentation,
-      let bitmap = NSBitmapImageRep(data: tiff),
-      let png = bitmap.representation(using: .png, properties: [:])
-    else { return false }
-    return (try? png.write(to: URL(fileURLWithPath: path))) != nil
+    return (UsageViewModel(ledger: ledger), nil)
   }
 }

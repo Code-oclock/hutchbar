@@ -6,6 +6,15 @@ API prices. **Pre-alpha (0.0.1)**; private until v0.1. Requires macOS 14 or late
 Maintained by [Code-oclock](https://github.com/Code-oclock). Licensed under
 GPL-3.0-or-later; see [LICENSE](LICENSE).
 
+<p align="center">
+  <img src="docs/images/menubar-light.png" alt="Menu bar: logo and two waiting sessions" height="44">
+  <img src="docs/images/menubar-dark.png" alt="The same on a dark menu bar" height="44"><br>
+  <img src="docs/images/panel-en.png" alt="hutchbar panel with demo data" width="560">
+</p>
+
+<sub>Demo data (`hutchbar --render-panel out.png --demo --lang en`); Russian:
+[panel-ru.png](docs/images/panel-ru.png).</sub>
+
 ## What it shows
 
 - **Menu bar:** the hutch logo and the number of sessions waiting for you; the number sits

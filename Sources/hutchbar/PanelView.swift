@@ -13,6 +13,7 @@ struct PanelView: View {
   var onOpenSettings: (@MainActor () -> Void)?
 
   private let scrollable: Bool
+  private let initialHooksStatus: HooksStatus?
 
   private var selectedSessionIdState = SwiftUI.State<String?>(initialValue: nil)
   private var copiedHooksState = SwiftUI.State<Bool>(initialValue: false)
@@ -52,7 +53,8 @@ struct PanelView: View {
     onJump: @escaping @MainActor (SessionSnapshot) -> Void,
     onClose: (@MainActor () -> Void)? = nil,
     onOpenSettings: (@MainActor () -> Void)? = nil,
-    scrollable: Bool = true
+    scrollable: Bool = true,
+    initialHooksStatus: HooksStatus? = nil
   ) {
     self.store = store
     self.usage = usage
@@ -60,6 +62,10 @@ struct PanelView: View {
     self.onClose = onClose
     self.onOpenSettings = onOpenSettings
     self.scrollable = scrollable
+    self.initialHooksStatus = initialHooksStatus
+    if let initialHooksStatus {
+      self.hooksStatusState = SwiftUI.State(initialValue: initialHooksStatus)
+    }
   }
 
   var body: some View {
@@ -123,7 +129,9 @@ struct PanelView: View {
       if selectedSessionId == nil {
         selectedSessionId = selectableSessions.first?.id
       }
-      refreshHooksStatus(force: false)
+      if initialHooksStatus == nil {
+        refreshHooksStatus(force: false)
+      }
     }
     .onDisappear {
       copyTask?.cancel()
