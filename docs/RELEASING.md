@@ -49,6 +49,16 @@ This self-signed code-signing certificate is not Developer ID/notarization and o
 to preserve TCC identity across rebuilds. Keep it local. `Tools/notarize.sh` prints
 “skipped” and exits 0 if the NOTARY variables are missing; CI enables it only with complete credentials.
 
+## Optional Homebrew tap update
+
+[`Code-oclock/homebrew-hutchbar`](https://github.com/Code-oclock/homebrew-hutchbar) holds the
+cask. With the `TAP_TOKEN` environment secret (a fine-grained personal access token limited to
+that one repository, **Contents: read and write**, short expiry), the `tap` job runs after a
+stable release is published and commits the new `version` and `sha256` through
+`Tools/update-cask.py`. Prereleases are skipped. Without the secret the job only prints a
+notice; update the cask by hand. The job needs a second approval of the `release`
+environment. The token is never available to build or publish jobs.
+
 ## Prepare and tag
 
 1. Run all CI checks and manually inspect menu bar/About/Quit on a real Mac. Measure idle
