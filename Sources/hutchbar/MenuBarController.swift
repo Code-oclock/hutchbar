@@ -125,6 +125,7 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     if popover.isShown {
       popover.performClose(nil)
     }
+    L10n.preference = settings.language
 
     let menu = NSMenu()
 
@@ -135,6 +136,21 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     )
     settingsItem.target = self
     menu.addItem(settingsItem)
+
+    // Offer removal when any Claude profile has hutchbar hooks (removal covers them all).
+    let hasHooks = ClaudeHooksInstaller.discoveredProfileDirectories().contains { dir in
+      let status = ClaudeHooksInstaller.status(at: dir)
+      return status == .installed || status == .stale
+    }
+    if hasHooks {
+      let removeHooksItem = NSMenuItem(
+        title: L10n.removeHooksMenuItem(),
+        action: #selector(confirmAndUninstallHooks),
+        keyEquivalent: ""
+      )
+      removeHooksItem.target = self
+      menu.addItem(removeHooksItem)
+    }
 
     let copyHooksItem = NSMenuItem(
       title: "Copy hooks snippet",
@@ -171,6 +187,44 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
 
   @objc private func openSettings() {
     SettingsWindowController.shared.show(settings: settings)
+  }
+
+  @objc private func confirmAndUninstallHooks() {
+    let profileDirs = ClaudeHooksInstaller.discoveredProfileDirectories()
+    let alert = NSAlert()
+    alert.messageText = L10n.uninstallHooksConfirmationTitle()
+    alert.informativeText = L10n.uninstallHooksConfirmationMessage(profiles: profileDirs)
+    alert.addButton(withTitle: L10n.uninstallHooks())
+    alert.addButton(withTitle: L10n.cancel())
+    alert.alertStyle = .warning
+
+    let response = alert.runModal()
+    guard response == .alertFirstButtonReturn else { return }
+
+    var reports: [InstallReport] = []
+    var errors: [String] = []
+
+    for dir in profileDirs {
+      do {
+        let report = try ClaudeHooksInstaller.uninstall(at: dir)
+        reports.append(report)
+      } catch {
+        errors.append("\(dir): \(error.localizedDescription)")
+      }
+    }
+
+    let summaryAlert = NSAlert()
+    if errors.isEmpty {
+      summaryAlert.alertStyle = .informational
+      summaryAlert.messageText = L10n.uninstallHooksSuccessTitle()
+      summaryAlert.informativeText = L10n.uninstallHooksSuccessMessage(reports: reports)
+    } else {
+      summaryAlert.alertStyle = .warning
+      summaryAlert.messageText = L10n.uninstallHooksErrorTitle()
+      summaryAlert.informativeText = L10n.uninstallHooksErrorMessage(errors: errors)
+    }
+    summaryAlert.addButton(withTitle: L10n.ok())
+    summaryAlert.runModal()
   }
 
   @objc private func copyHooksSnippet() {
