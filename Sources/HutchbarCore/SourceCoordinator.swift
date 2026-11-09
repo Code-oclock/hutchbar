@@ -63,6 +63,8 @@ public actor SourceCoordinator {
     public var claudeProjectsRoot: String
     public var claudeSessionsRoot: String
     public var codexSessionsRoot: String
+    public var copilotSessionRoot: String
+    public var openCodeDatabasePath: String
     public var eventsPath: String
     public var ccrDatabasePath: String
     public var enabledSources: Set<SourceKind>
@@ -75,6 +77,8 @@ public actor SourceCoordinator {
       claudeProjectsRoot: String = Configuration.defaultClaudeProjectsRoot,
       claudeSessionsRoot: String = Configuration.defaultClaudeSessionsRoot,
       codexSessionsRoot: String = Configuration.defaultCodexSessionsRoot,
+      copilotSessionRoot: String = Configuration.defaultCopilotSessionRoot,
+      openCodeDatabasePath: String = Configuration.defaultOpenCodeDatabasePath,
       eventsPath: String = Configuration.defaultEventsPath,
       ccrDatabasePath: String = CcrQuotaReader.defaultDatabasePath,
       enabledSources: Set<SourceKind> = Set(SourceKind.allCases),
@@ -86,6 +90,8 @@ public actor SourceCoordinator {
       self.claudeProjectsRoot = claudeProjectsRoot
       self.claudeSessionsRoot = claudeSessionsRoot
       self.codexSessionsRoot = codexSessionsRoot
+      self.copilotSessionRoot = copilotSessionRoot
+      self.openCodeDatabasePath = openCodeDatabasePath
       self.eventsPath = eventsPath
       self.ccrDatabasePath = ccrDatabasePath
       self.enabledSources = enabledSources
@@ -124,6 +130,8 @@ public actor SourceCoordinator {
     /// Codex only: close the session when its `codex` process exits (terminal CLI).
     /// False for Codex Desktop and IDE sessions, which share one app-server process.
     var endsWithProcess = true
+    /// Copilot only: the open turn, carried between batches of the same log.
+    var copilotTurn = CopilotTurnTracker()
 
     init(reader: JSONLTailReader, agent: AgentKind) {
       self.reader = reader
@@ -146,6 +154,7 @@ public actor SourceCoordinator {
   var trackedLiveSessions: [String: Int] = [:]
   var codexMissingProcessCounts: [String: Int] = [:]
   var lastCodexProcessCheckTime: Date = .distantPast
+  var openCodeTracker = OpenCodeSessionTracker()
   private var eventsReader: JSONLTailReader?
   private var lastCcrPollTime: Date = .distantPast
   private var lastEmittedQuotas: [String: AccountQuota] = [:]
@@ -210,6 +219,7 @@ public actor SourceCoordinator {
     trackedSessions.removeAll()
     trackedLiveSessions.removeAll()
     codexMissingProcessCounts.removeAll()
+    openCodeTracker.reset()
 
     eventsReader?.stop()
     eventsReader = nil
@@ -225,6 +235,7 @@ public actor SourceCoordinator {
     pollCcrQuotas(now: now)
     pollClaudeLive(now: now)
     pollCodexProcesses(now: now)
+    pollOpenCodeSessions(now: now)
   }
 
   private func pollSessions(now: Date) {
@@ -236,6 +247,9 @@ public actor SourceCoordinator {
     }
     if configuration.enabledSources.contains(.codexSessions) {
       enumerateCodexFiles(now: now, into: &discovered)
+    }
+    if configuration.enabledSources.contains(.copilotSessions) {
+      enumerateCopilotFiles(into: &discovered)
     }
 
     let fresh = discovered.values.filter { $0.file.modificationDate >= cutoff }
@@ -259,80 +273,6 @@ public actor SourceCoordinator {
 
     for item in selected {
       pollTrackedSession(item: item, now: now)
-    }
-  }
-
-  private func pollTrackedSession(
-    item: (file: FileMetadata, agent: AgentKind),
-    now: Date
-  ) {
-    let path = item.file.path
-    let tracked: TrackedSession
-    if let existing = trackedSessions[path] {
-      tracked = existing
-    } else {
-      do {
-        let reader = try JSONLTailReader(
-          path: path,
-          fileSystem: fileSystem,
-          clock: clock,
-          maximumReadBytes: 1_048_576,
-          startFromTail: 262_144
-        )
-        let newTracked = TrackedSession(reader: reader, agent: item.agent)
-        if item.agent == .codex {
-          newTracked.endsWithProcess = CodexOriginator.endsWithProcess(
-            path: path, fileSystem: fileSystem)
-        }
-        trackedSessions[path] = newTracked
-        tracked = newTracked
-      } catch {
-        return
-      }
-    }
-
-    do {
-      let batch = try tracked.reader.poll()
-      if !batch.lines.isEmpty {
-        switch tracked.agent {
-        case .claudeCode:
-          let (newSnapshot, _) = claudeParser.parse(
-            batch.lines,
-            current: tracked.snapshot,
-            now: now
-          )
-          if let newSnapshot, newSnapshot != tracked.snapshot {
-            tracked.snapshot = newSnapshot
-            yieldUpdate(.session(newSnapshot))
-          }
-        case .codex:
-          let result = CodexSessionParser.parse(
-            batch.lines,
-            current: tracked.snapshot,
-            now: now
-          )
-          if let newSnapshot = result.snapshot, newSnapshot != tracked.snapshot {
-            tracked.snapshot = newSnapshot
-            yieldUpdate(.session(newSnapshot))
-          }
-          if let quota = result.quota, quota != tracked.lastQuota {
-            tracked.lastQuota = quota
-            yieldUpdate(.quota(quota))
-          }
-        case .antigravity, .qwen, .opencode, .copilot, .geminiCLI:
-          // Tracked files are discovered only for Claude Code and Codex.
-          break
-        }
-      } else if let current = tracked.snapshot {
-        let updated = Self.applyInactivity(
-          agent: tracked.agent, to: current, now: now, claudeParser: claudeParser)
-        if let updated, updated != current {
-          tracked.snapshot = updated
-          yieldUpdate(.session(updated))
-        }
-      }
-    } catch {
-      // Ignore read errors during polling
     }
   }
 
@@ -391,6 +331,99 @@ public actor SourceCoordinator {
   }
 }
 
+// MARK: - Tracked session logs
+
+extension SourceCoordinator {
+  fileprivate func pollTrackedSession(
+    item: (file: FileMetadata, agent: AgentKind),
+    now: Date
+  ) {
+    let path = item.file.path
+    let tracked: TrackedSession
+    if let existing = trackedSessions[path] {
+      tracked = existing
+    } else {
+      do {
+        let reader = try JSONLTailReader(
+          path: path,
+          fileSystem: fileSystem,
+          clock: clock,
+          maximumReadBytes: 1_048_576,
+          startFromTail: 262_144
+        )
+        let newTracked = TrackedSession(reader: reader, agent: item.agent)
+        if item.agent == .codex {
+          newTracked.endsWithProcess = CodexOriginator.endsWithProcess(
+            path: path, fileSystem: fileSystem)
+        }
+        trackedSessions[path] = newTracked
+        tracked = newTracked
+      } catch {
+        return
+      }
+    }
+
+    do {
+      let batch = try tracked.reader.poll()
+      if !batch.lines.isEmpty {
+        switch tracked.agent {
+        case .claudeCode:
+          let (newSnapshot, _) = claudeParser.parse(
+            batch.lines,
+            current: tracked.snapshot,
+            now: now
+          )
+          if let newSnapshot, newSnapshot != tracked.snapshot {
+            tracked.snapshot = newSnapshot
+            yieldUpdate(.session(newSnapshot))
+          }
+        case .codex:
+          let result = CodexSessionParser.parse(
+            batch.lines,
+            current: tracked.snapshot,
+            now: now
+          )
+          if let newSnapshot = result.snapshot, newSnapshot != tracked.snapshot {
+            tracked.snapshot = newSnapshot
+            yieldUpdate(.session(newSnapshot))
+          }
+          if let quota = result.quota, quota != tracked.lastQuota {
+            tracked.lastQuota = quota
+            yieldUpdate(.quota(quota))
+          }
+        case .copilot:
+          let fallbackDirName = URL(fileURLWithPath: item.file.path)
+            .deletingLastPathComponent().lastPathComponent
+          let result = CopilotSessionParser.parse(
+            batch.lines,
+            current: tracked.snapshot,
+            fallbackSessionId: fallbackDirName,
+            turn: tracked.copilotTurn,
+            now: now
+          )
+          tracked.copilotTurn = result.turn
+          if let newSnapshot = result.snapshot, newSnapshot != tracked.snapshot {
+            tracked.snapshot = newSnapshot
+            yieldUpdate(.session(newSnapshot))
+          }
+        case .antigravity, .qwen, .opencode, .geminiCLI:
+          // Tracked files are discovered only for Claude Code, Codex, and Copilot CLI.
+          break
+        }
+      } else if let current = tracked.snapshot {
+        let updated = Self.applyInactivity(
+          agent: tracked.agent, to: current, now: now, claudeParser: claudeParser)
+        if let updated, updated != current {
+          tracked.snapshot = updated
+          yieldUpdate(.session(updated))
+        }
+      }
+    } catch {
+      // Ignore read errors during polling
+    }
+  }
+}
+
 extension SourceCoordinator {
   /// The inactivity rule of the agent whose transcript went quiet; nil when it has none.
   static func applyInactivity(
@@ -403,7 +436,10 @@ extension SourceCoordinator {
     case .codex:
       let updated: SessionSnapshot = CodexSessionParser.applyInactivityRule(to: current, now: now)
       return updated
-    case .antigravity, .qwen, .opencode, .copilot, .geminiCLI:
+    case .copilot:
+      let updated: SessionSnapshot = CopilotSessionParser.applyInactivityRule(to: current, now: now)
+      return updated
+    case .antigravity, .qwen, .opencode, .geminiCLI:
       return nil
     }
   }
