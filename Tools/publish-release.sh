@@ -21,7 +21,8 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 verify_assets() {
   local count file
-  count=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$GITHUB_REF_NAME" --jq '.assets | length')
+  # `gh release view` finds drafts too; the tags REST endpoint returns 404 for them.
+  count=$(gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets | length')
   [[ "$count" == "${#files[@]}" ]] || { echo 'Unexpected release assets.' >&2; exit 1; }
   gh release download "$GITHUB_REF_NAME" --dir "$work" --clobber
   for file in "${files[@]}"; do cmp "$file" "$work/$(basename "$file")"; done
