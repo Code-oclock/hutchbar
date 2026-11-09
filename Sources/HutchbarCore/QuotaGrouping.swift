@@ -32,7 +32,8 @@ extension ProviderQuotaCard {
     let count = accounts.reduce(0) { total, account in
       total + max(1, account.windows.count)
     }
-    return max(1, count)
+    // Each gateway list is collapsed by default: one header row.
+    return max(1, count + gateways.count)
   }
 
   /// Window groups of the primary account, if any.
@@ -51,7 +52,7 @@ extension QuotaPresentation {
 
     let sortedCards =
       cards
-      .filter { !$0.accounts.isEmpty }
+      .filter { !$0.accounts.isEmpty || !$0.gateways.isEmpty }
       .sorted { lhs, rhs in
         let lhsIndex = AgentKind.allCases.firstIndex(of: lhs.agent) ?? 0
         let rhsIndex = AgentKind.allCases.firstIndex(of: rhs.agent) ?? 0

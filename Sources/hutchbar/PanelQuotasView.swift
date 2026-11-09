@@ -67,6 +67,10 @@ private struct ProviderQuotaCardView: View {
           AccountQuotaBlockView(account: account)
         }
       }
+
+      ForEach(card.gateways) { gateway in
+        GatewayQuotaListView(group: gateway, startsExpanded: card.accounts.isEmpty)
+      }
     }
     .frame(maxWidth: .infinity, alignment: .topLeading)
   }
@@ -95,6 +99,60 @@ private struct ProviderQuotaCardView: View {
 
   private var providerTitle: String {
     card.agent.info.displayName
+  }
+}
+
+/// Accounts seen through a gateway (ccr): one collapsed row «через ccr · 3», expanded on click.
+/// Open from the start when the card has no direct accounts at all.
+private struct GatewayQuotaListView: View {
+  let group: GatewayQuotaGroup
+  private var expandedState: SwiftUI.State<Bool>
+
+  init(group: GatewayQuotaGroup, startsExpanded: Bool) {
+    self.group = group
+    self.expandedState = SwiftUI.State<Bool>(initialValue: startsExpanded)
+  }
+
+  private var isExpanded: Bool {
+    get { expandedState.wrappedValue }
+    nonmutating set { expandedState.wrappedValue = newValue }
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Divider()
+        .padding(.vertical, 2)
+
+      Button(action: { isExpanded.toggle() }) {
+        HStack(spacing: 4) {
+          Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+            .font(.system(size: 9, weight: .semibold))
+            .foregroundStyle(.secondary)
+          Text(L10n.viaGateway(group.name, accounts: group.accounts.count))
+            .font(.caption)
+            .foregroundStyle(.secondary)
+          Spacer()
+          if group.hasCurrent && !isExpanded {
+            Text(L10n.currentAccountNow())
+              .font(.caption2)
+              .fontWeight(.medium)
+              .foregroundStyle(.green)
+          }
+        }
+        .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+
+      if isExpanded {
+        ForEach(Array(group.accounts.enumerated()), id: \.element.id) { index, account in
+          if index > 0 {
+            Divider()
+              .padding(.vertical, 2)
+          }
+          AccountQuotaBlockView(account: account)
+        }
+      }
+    }
   }
 }
 

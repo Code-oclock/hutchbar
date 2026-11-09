@@ -30,7 +30,9 @@ private func makeDate(
 struct QuotaPresentationV3Tests {
   private let baseTime = makeDate(year: 2026, month: 11, day: 7, hour: 12, minute: 0)
 
-  @Test func quotaPresentationV3_ccrAndCliWeeklyResetMerge() {
+  /// A gateway cannot tell which subscription its alias is: never merged with direct accounts,
+  /// shown in its own group even when the weeks reset together.
+  @Test func quotaPresentationV3_ccrStaysApartFromCliAccount() {
     let resetTime = baseTime.addingTimeInterval(86400 * 3)
     let ccrQuota = AccountQuota(
       agent: .claudeCode,
@@ -59,10 +61,15 @@ struct QuotaPresentationV3Tests {
       return
     }
 
-    #expect(card.accounts.count == 1)
-    let account = card.accounts[0]
-    #expect(account.name == "pro-1")
-    #expect(account.windows.first?.remainingPercent == 40.0)
+    #expect(card.accounts.map(\.name) == ["john"])
+    #expect(card.accounts[0].windows.first?.remainingPercent == 40.0)
+    #expect(card.gateways.map(\.name) == ["ccr"])
+    let gatewayAccount = card.gateways.first?.accounts.first
+    #expect(gatewayAccount?.name == "pro-1")
+    #expect(gatewayAccount?.windows.first?.remainingPercent == 60.0)
+    // The gateway alias was used last: it is "now", the direct account is not guessed.
+    #expect(gatewayAccount?.isCurrent == true)
+    #expect(card.accounts[0].isCurrent == false)
   }
 
   @Test func quotaPresentationV3_codexLogPlusAndCliMerge() {
@@ -97,9 +104,9 @@ struct QuotaPresentationV3Tests {
     #expect(card.accounts[0].name == "dev-user")
   }
 
-  @Test func quotaPresentationV3_mismatchedWeeklyResetsDoNotMerge() {
+  @Test func quotaPresentationV3_gatewayAliasesNeverMerge() {
     let resetTimeA = baseTime.addingTimeInterval(86400 * 2)
-    let resetTimeB = resetTimeA.addingTimeInterval(120)
+    let resetTimeB = resetTimeA.addingTimeInterval(30)
     let quotaA = AccountQuota(
       agent: .claudeCode,
       accountName: "pro-1",
@@ -125,7 +132,9 @@ struct QuotaPresentationV3Tests {
       return
     }
 
-    #expect(card.accounts.count == 2)
+    // A card with gateway accounts only still shows up; resets 30 s apart do not merge aliases.
+    #expect(card.accounts.isEmpty)
+    #expect(card.gateways.first?.accounts.map(\.name).sorted() == ["pro-1", "pro-2"])
   }
 
   @Test func quotaPresentationV3_currentAccountBySessionLogOrCcr() {
