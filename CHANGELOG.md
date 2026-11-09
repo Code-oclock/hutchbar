@@ -5,6 +5,8 @@ and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-09
+
 ### Added
 
 - Menu bar item: the monochrome hutch logo and the number of sessions waiting for you
@@ -26,6 +28,9 @@ and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Russian and English UI following the system language.
 - `--render-panel`, `--render-icon`, `--probe-limits` for checks without starting the app.
 - Incremental, size-bounded JSONL tail reader with symlink rejection and rotation handling.
+- Verification status: Claude Code, Codex and Antigravity were checked on a live Mac.
+  Gemini CLI, OpenCode, Copilot CLI and Qwen Code are covered by synthetic tests only
+  (no live installation); formats may differ in the wild — please report.
 - Swift Testing, sanitizers, leak smoke test, linting, hooks, and protected release tooling.
 
 No release has been published. The source version is 0.0.1; create a dated release entry

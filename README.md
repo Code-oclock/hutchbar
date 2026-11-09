@@ -2,7 +2,7 @@
 
 A macOS menu bar cockpit for coding agents: who is waiting for you and why, who is working
 (and whom they called), how much of every subscription is left, and what the day cost at
-API prices. **Pre-alpha (0.0.1)**; private until v0.1. Requires macOS 14 or later.
+API prices. **Early release (0.1.0)**; ad-hoc signed, see [Install](#install). Requires macOS 14 or later.
 Maintained by [Code-oclock](https://github.com/Code-oclock). Licensed under
 GPL-3.0-or-later; see [LICENSE](LICENSE).
 
@@ -51,6 +51,17 @@ a dated backup next to the file. «Удалить хуки Claude…» in the ri
 them. The hooks only run `hutchbar --hook`, which appends a content-free event to
 `~/Library/Application Support/hutchbar/events.jsonl`.
 
+## Install
+
+Download `Hutchbar-X.Y.Z.dmg` from the release, verify it against `SHA256SUMS`, and drag the
+app to Applications. The build is **ad-hoc signed, not notarized**, so Gatekeeper will refuse
+the first launch. If you have verified the download and chose to trust it, run
+`xattr -dr com.apple.quarantine /Applications/Hutchbar.app`. This does not authenticate the
+app. Apple silicon only.
+
+Verified on a live Mac: Claude Code, Codex, Antigravity. Gemini CLI, OpenCode, Copilot CLI
+and Qwen Code are covered by synthetic tests only; reports are welcome.
+
 ## Privacy
 
 Everything stays on your Mac: no telemetry, no analytics, no remote logging. hutchbar reads
@@ -71,7 +82,7 @@ open build/Hutchbar.app
 ./build.sh --asan                 # Address Sanitizer
 ./build.sh --tsan                 # Thread Sanitizer (use Xcode on CI)
 ./build.sh --leaks                # release app selftest under leaks --atExit
-./build.sh --dmg                  # dist/Hutchbar-0.0.1.dmg
+./build.sh --dmg                  # dist/Hutchbar-0.1.0.dmg
 build/Hutchbar.app/Contents/MacOS/hutchbar --version
 ```
 
