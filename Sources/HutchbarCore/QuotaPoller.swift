@@ -86,6 +86,9 @@ public actor QuotaPoller {
   private let nowProvider: @Sendable () -> Date
   public private(set) var isPanelVisible = false
   private var sourceAvailability: [SourceKind: Bool] = [:]
+  /// Last outcome per target: a source with several targets (one per Claude profile)
+  /// is available while any of them answered, so one broken profile does not flicker it.
+  private var targetAvailability: [String: Bool] = [:]
 
   public nonisolated let updates: AsyncStream<SourceUpdate>
   private let continuation: AsyncStream<SourceUpdate>.Continuation
@@ -172,10 +175,7 @@ public actor QuotaPoller {
 
       targetStates[chosenTarget.id] = chosenState
 
-      if sourceAvailability[chosenTarget.source] != true {
-        sourceAvailability[chosenTarget.source] = true
-        continuation.yield(.sourceStatus(chosenTarget.source, available: true))
-      }
+      updateAvailability(of: chosenTarget, available: true)
       continuation.yield(.quota(quota))
 
     case .failure(let failure):
@@ -191,10 +191,7 @@ public actor QuotaPoller {
       chosenState.nextDue = currentTime.addingTimeInterval(delay)
       targetStates[chosenTarget.id] = chosenState
 
-      if sourceAvailability[chosenTarget.source] != false {
-        sourceAvailability[chosenTarget.source] = false
-        continuation.yield(.sourceStatus(chosenTarget.source, available: false))
-      }
+      updateAvailability(of: chosenTarget, available: false)
     }
   }
 
@@ -267,6 +264,19 @@ public actor QuotaPoller {
     case 2: return 1200.0
     default: return 1800.0
     }
+  }
+}
+
+extension QuotaPoller {
+  /// Records one target's outcome and emits the source status when the aggregate
+  /// (any target of the source available) changes.
+  fileprivate func updateAvailability(of target: QuotaProbeTarget, available: Bool) {
+    targetAvailability[target.id] = available
+    let siblings = targets.filter { $0.source == target.source }
+    let aggregate = siblings.contains { targetAvailability[$0.id] == true }
+    guard sourceAvailability[target.source] != aggregate else { return }
+    sourceAvailability[target.source] = aggregate
+    continuation.yield(.sourceStatus(target.source, available: aggregate))
   }
 }
 
