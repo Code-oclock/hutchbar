@@ -38,12 +38,14 @@ extension AgentKind {
     case .copilot:
       return AgentInfo(
         displayName: "Copilot", symbol: "airplane", color: .secondary, executable: "copilot")
+    case .geminiCLI:
+      return AgentInfo(
+        displayName: "Gemini CLI", symbol: "sparkle", color: .blue, executable: "gemini")
     }
   }
 
   /// The agent whose CLI has this executable name, if any.
   public static func forExecutable(_ name: String) -> AgentKind? {
-    // Gemini CLI (`gemini`) is a different product from Antigravity (`agy`): no mapping.
     let lower = name.lowercased()
     return allCases.first { $0.info.executable == lower }
   }

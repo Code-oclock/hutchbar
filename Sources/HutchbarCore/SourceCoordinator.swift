@@ -319,7 +319,7 @@ public actor SourceCoordinator {
             tracked.lastQuota = quota
             yieldUpdate(.quota(quota))
           }
-        case .antigravity, .qwen, .opencode, .copilot:
+        case .antigravity, .qwen, .opencode, .copilot, .geminiCLI:
           // Tracked files are discovered only for Claude Code and Codex.
           break
         }
@@ -403,7 +403,7 @@ extension SourceCoordinator {
     case .codex:
       let updated: SessionSnapshot = CodexSessionParser.applyInactivityRule(to: current, now: now)
       return updated
-    case .antigravity, .qwen, .opencode, .copilot:
+    case .antigravity, .qwen, .opencode, .copilot, .geminiCLI:
       return nil
     }
   }

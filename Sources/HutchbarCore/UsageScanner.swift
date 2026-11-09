@@ -40,6 +40,7 @@ public actor UsageScanner {
   public let codexSessionsRoot: String
   public let qwenUsageRoot: String
   public let copilotSessionRoot: String
+  public let geminiTmpRoot: String
   public let openCodeDatabasePath: String
   public let rescanInterval: TimeInterval
   public let cutoffDays: Int
@@ -65,6 +66,7 @@ public actor UsageScanner {
     codexSessionsRoot: String = SourceCoordinator.Configuration.defaultCodexSessionsRoot,
     qwenUsageRoot: String = UsageScanner.defaultQwenUsageRoot,
     copilotSessionRoot: String = UsageScanner.defaultCopilotSessionRoot,
+    geminiTmpRoot: String = UsageScanner.defaultGeminiTmpRoot,
     openCodeDatabasePath: String = UsageScanner.defaultOpenCodeDatabasePath,
     fileSystem: any TailFileSystem = LocalTailFileSystem(),
     directoryLister: any DirectoryLister = LocalDirectoryLister(),
@@ -78,6 +80,7 @@ public actor UsageScanner {
     self.codexSessionsRoot = codexSessionsRoot
     self.qwenUsageRoot = qwenUsageRoot
     self.copilotSessionRoot = copilotSessionRoot
+    self.geminiTmpRoot = geminiTmpRoot
     self.openCodeDatabasePath = openCodeDatabasePath
     self.fileSystem = fileSystem
     self.directoryLister = directoryLister
@@ -141,6 +144,7 @@ public actor UsageScanner {
     let codexFiles = discoverCodexFiles(cutoff: cutoff, now: now)
     let qwenFiles = discoverQwenFiles(cutoff: cutoff, now: now)
     let copilotFiles = discoverCopilotFiles(cutoff: cutoff)
+    let geminiFiles = discoverGeminiFiles(cutoff: cutoff)
 
     var cacheModified = cacheNeedsRewrite
     cacheNeedsRewrite = false
@@ -152,6 +156,8 @@ public actor UsageScanner {
     recordFiles(qwenFiles, agent: .qwen, activePaths: &activePaths, cacheModified: &cacheModified)
     recordFiles(
       copilotFiles, agent: .copilot, activePaths: &activePaths, cacheModified: &cacheModified)
+    recordFiles(
+      geminiFiles, agent: .geminiCLI, activePaths: &activePaths, cacheModified: &cacheModified)
 
     recordOpenCode(cutoff: cutoff, activePaths: &activePaths, cacheModified: &cacheModified)
 
@@ -284,38 +290,6 @@ public actor UsageScanner {
 
   // MARK: - File Reading & Parsing
 
-  private func readFileAndParse(
-    path: String,
-    agent: AgentKind
-  ) -> (size: UInt64, events: [UsageEvent])? {
-    do {
-      let file = try fileSystem.openRegularFile(at: path)
-      defer { file.close() }
-      let snapshot = try file.snapshot()
-      let size = snapshot.size
-      guard size <= 50_000_000 else { return nil }
-
-      var data = Data()
-      data.reserveCapacity(Int(min(size, 10_000_000)))
-      var offset: UInt64 = 0
-      let chunkSize = 65_536
-      while offset < size {
-        let count = Int(min(UInt64(chunkSize), size - offset))
-        let chunk = try file.read(from: offset, count: count)
-        if chunk.isEmpty { break }
-        data.append(chunk)
-        offset += UInt64(chunk.count)
-      }
-
-      guard let text = String(data: data, encoding: .utf8) else { return nil }
-      let lines = text.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
-
-      return (size, Self.parseUsageEvents(agent: agent, lines: lines, calendar: calendar))
-    } catch {
-      return nil
-    }
-  }
-
   // MARK: - Persistence
 
   /// Loads the cache; `discarded` is true when a file existed but was unreadable or of
@@ -386,6 +360,40 @@ public actor UsageScanner {
 }
 
 extension UsageScanner {
+  fileprivate func readFileAndParse(
+    path: String,
+    agent: AgentKind
+  ) -> (size: UInt64, events: [UsageEvent])? {
+    do {
+      let file = try fileSystem.openRegularFile(at: path)
+      defer { file.close() }
+      let snapshot = try file.snapshot()
+      let size = snapshot.size
+      guard size <= 50_000_000 else { return nil }
+
+      var data = Data()
+      data.reserveCapacity(Int(min(size, 10_000_000)))
+      var offset: UInt64 = 0
+      let chunkSize = 65_536
+      while offset < size {
+        let count = Int(min(UInt64(chunkSize), size - offset))
+        let chunk = try file.read(from: offset, count: count)
+        if chunk.isEmpty { break }
+        data.append(chunk)
+        offset += UInt64(chunk.count)
+      }
+
+      guard let text = String(data: data, encoding: .utf8) else { return nil }
+      let lines = text.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
+
+      return (size, Self.parseUsageEvents(agent: agent, lines: lines, calendar: calendar))
+    } catch {
+      return nil
+    }
+  }
+}
+
+extension UsageScanner {
   /// Usage events of one transcript file; agents without file transcripts yield none.
   static func parseUsageEvents(agent: AgentKind, lines: [String], calendar: Calendar)
     -> [UsageEvent]
@@ -402,6 +410,8 @@ extension UsageScanner {
       return parseQwenUsage(lines: lines, seenIds: &seenIds, calendar: calendar)
     case .copilot:
       return parseCopilotUsage(lines: lines, calendar: calendar)
+    case .geminiCLI:
+      return parseGeminiUsage(lines: lines, calendar: calendar)
     case .antigravity, .opencode:
       return []
     }
