@@ -53,11 +53,22 @@ them. The hooks only run `hutchbar --hook`, which appends a content-free event t
 
 ## Install
 
-Download `Hutchbar-X.Y.Z.dmg` from the release, verify it against `SHA256SUMS`, and drag the
-app to Applications. The build is **ad-hoc signed, not notarized**, so Gatekeeper will refuse
-the first launch. If you have verified the download and chose to trust it, run
-`xattr -dr com.apple.quarantine /Applications/Hutchbar.app`. This does not authenticate the
-app. Apple silicon only.
+**Homebrew** (Apple silicon, macOS 14 or later):
+
+```sh
+brew install --cask code-oclock/hutchbar/hutchbar
+```
+
+The [tap](https://github.com/Code-oclock/homebrew-hutchbar) checks the download against the
+SHA-256 from the release and removes the quarantine flag, so the first launch is not blocked.
+
+**Manual:** download `Hutchbar-X.Y.Z.dmg` from the release, verify it against `SHA256SUMS`,
+and drag the app to Applications. The build is **ad-hoc signed, not notarized**, so Gatekeeper
+refuses the first launch. On macOS 15 and later, open **System Settings → Privacy & Security**,
+scroll to the message about Hutchbar and click **Open Anyway** (the old Control-click → Open
+trick no longer offers this). Or, if you verified the download and chose to trust it, run
+`xattr -dr com.apple.quarantine /Applications/Hutchbar.app`. Neither authenticates the app:
+the signature cannot prove who published it.
 
 Verified on a live Mac: Claude Code, Codex, Antigravity. Gemini CLI, OpenCode, Copilot CLI
 and Qwen Code are covered by synthetic tests only; reports are welcome.
