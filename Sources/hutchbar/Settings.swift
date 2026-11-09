@@ -86,6 +86,8 @@ extension SourceKind {
       return (L10n.currentLanguage() == .ru) ? "Copilot: сессии" : "Copilot: sessions"
     case .openCodeSessions:
       return (L10n.currentLanguage() == .ru) ? "OpenCode: сессии" : "OpenCode: sessions"
+    case .geminiSessions:
+      return (L10n.currentLanguage() == .ru) ? "Gemini CLI: сессии" : "Gemini CLI: sessions"
     }
   }
 }

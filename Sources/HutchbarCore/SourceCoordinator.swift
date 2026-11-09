@@ -65,6 +65,7 @@ public actor SourceCoordinator {
     public var codexSessionsRoot: String
     public var copilotSessionRoot: String
     public var openCodeDatabasePath: String
+    public var geminiTmpRoot: String
     public var eventsPath: String
     public var ccrDatabasePath: String
     public var enabledSources: Set<SourceKind>
@@ -79,6 +80,7 @@ public actor SourceCoordinator {
       codexSessionsRoot: String = Configuration.defaultCodexSessionsRoot,
       copilotSessionRoot: String = Configuration.defaultCopilotSessionRoot,
       openCodeDatabasePath: String = Configuration.defaultOpenCodeDatabasePath,
+      geminiTmpRoot: String = UsageScanner.defaultGeminiTmpRoot,
       eventsPath: String = Configuration.defaultEventsPath,
       ccrDatabasePath: String = CcrQuotaReader.defaultDatabasePath,
       enabledSources: Set<SourceKind> = Set(SourceKind.allCases),
@@ -92,6 +94,7 @@ public actor SourceCoordinator {
       self.codexSessionsRoot = codexSessionsRoot
       self.copilotSessionRoot = copilotSessionRoot
       self.openCodeDatabasePath = openCodeDatabasePath
+      self.geminiTmpRoot = geminiTmpRoot
       self.eventsPath = eventsPath
       self.ccrDatabasePath = ccrDatabasePath
       self.enabledSources = enabledSources
@@ -155,6 +158,7 @@ public actor SourceCoordinator {
   var codexMissingProcessCounts: [String: Int] = [:]
   var lastCodexProcessCheckTime: Date = .distantPast
   var openCodeTracker = OpenCodeSessionTracker()
+  var geminiTracker = GeminiSessionTracker()
   private var eventsReader: JSONLTailReader?
   private var lastCcrPollTime: Date = .distantPast
   private var lastEmittedQuotas: [String: AccountQuota] = [:]
@@ -220,6 +224,7 @@ public actor SourceCoordinator {
     trackedLiveSessions.removeAll()
     codexMissingProcessCounts.removeAll()
     openCodeTracker.reset()
+    geminiTracker.reset()
 
     eventsReader?.stop()
     eventsReader = nil
@@ -236,6 +241,7 @@ public actor SourceCoordinator {
     pollClaudeLive(now: now)
     pollCodexProcesses(now: now)
     pollOpenCodeSessions(now: now)
+    pollGeminiSessions(now: now)
   }
 
   private func pollSessions(now: Date) {
@@ -439,7 +445,10 @@ extension SourceCoordinator {
     case .copilot:
       let updated: SessionSnapshot = CopilotSessionParser.applyInactivityRule(to: current, now: now)
       return updated
-    case .antigravity, .qwen, .opencode, .geminiCLI:
+    case .geminiCLI:
+      let updated: SessionSnapshot = GeminiSessionParser.applyInactivityRule(to: current, now: now)
+      return updated
+    case .antigravity, .qwen, .opencode:
       return nil
     }
   }
