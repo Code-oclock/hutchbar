@@ -6,7 +6,7 @@ set -euo pipefail
 : "${GITHUB_ENV:?CI environment output required}"
 : "${SIGNING_CERT_P12:?Base64 PKCS12 certificate required}"
 : "${SIGNING_CERT_PASSWORD:?PKCS12 password required}"
-: "${SIGNING_IDENTITY:?Developer ID Application identity required}"
+: "${SIGNING_IDENTITY:?Signing identity name required}"
 work=$(mktemp -d "$RUNNER_TEMP/hutchbar-signing.XXXXXX")
 trap 'rm -rf "$work"' EXIT
 umask 077
@@ -19,8 +19,16 @@ security unlock-keychain -p "$password" "$keychain"
 security import "$work/identity.p12" -k "$keychain" -P "$SIGNING_CERT_PASSWORD" -T /usr/bin/codesign
 security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" >/dev/null
 security list-keychains -d user -s "$keychain" "$HOME/Library/Keychains/login.keychain-db"
-security find-identity -v -p codesigning "$keychain"
-[[ "$SIGNING_IDENTITY" == 'Developer ID Application: '* ]] || {
-  echo 'Expected a Developer ID Application identity.' >&2; exit 1;
+# Self-signed identities are untrusted, so list without -v; the name must be in the imported file.
+identities=$(security find-identity -p codesigning "$keychain")
+printf '%s\n' "$identities"
+grep -qF "\"$SIGNING_IDENTITY\"" <<< "$identities" || {
+  echo 'The signing identity is not in the imported certificate.' >&2; exit 1;
 }
-printf 'HUTCHBAR_SIGN_IDENTITY=%s\n' "$SIGNING_IDENTITY" >> "$GITHUB_ENV"
+fingerprint=$(security find-certificate -c "$SIGNING_IDENTITY" -Z "$keychain" \
+  | awk '/^SHA-256 hash:/ { print tolower($3) }')
+[[ "$fingerprint" =~ ^[0-9a-f]{64}$ ]] || { echo 'Could not read the certificate fingerprint.' >&2; exit 1; }
+{
+  printf 'HUTCHBAR_SIGN_IDENTITY=%s\n' "$SIGNING_IDENTITY"
+  printf 'SIGNING_CERT_SHA256=%s\n' "$fingerprint"
+} >> "$GITHUB_ENV"

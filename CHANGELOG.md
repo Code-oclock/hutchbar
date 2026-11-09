@@ -5,6 +5,12 @@ and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Homebrew tap `code-oclock/hutchbar` (cask updated by the release workflow).
+- Self-signed release builds: with a stable release certificate, updates keep macOS
+  notification and Automation permissions. Release notes carry the certificate fingerprint.
+
 ## [0.1.0] - 2026-11-09
 
 ### Added
@@ -32,6 +38,3 @@ and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Gemini CLI, OpenCode, Copilot CLI and Qwen Code are covered by synthetic tests only
   (no live installation); formats may differ in the wild — please report.
 - Swift Testing, sanitizers, leak smoke test, linting, hooks, and protected release tooling.
-
-No release has been published. The source version is 0.0.1; create a dated release entry
-before tagging a release.
