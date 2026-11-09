@@ -180,7 +180,9 @@ extension SourceCoordinator {
     lastCodexProcessCheckTime = now
 
     let activeCodexSessions = trackedSessions.values.filter { tracked in
-      guard tracked.agent == .codex, let snapshot = tracked.snapshot else { return false }
+      guard tracked.agent == .codex, tracked.endsWithProcess,
+        let snapshot = tracked.snapshot
+      else { return false }
       guard snapshot.state != .finished else { return false }
       guard let cwd = snapshot.cwd, !cwd.isEmpty else { return false }
       return true

@@ -3,7 +3,7 @@ import Foundation
 import HutchbarCore
 import Testing
 
-private final class TestClockBox: @unchecked Sendable {
+final class TestClockBox: @unchecked Sendable {
   private let lock = NSLock()
   private var current: Date
 
@@ -56,7 +56,7 @@ private actor FailureToggleBox {
   }
 }
 
-private actor StreamCollector {
+actor StreamCollector {
   private var items: [SourceUpdate] = []
   private var loopTask: Task<Void, Never>?
 
@@ -86,7 +86,7 @@ private actor StreamCollector {
   }
 }
 
-private func makeQuota(
+func makeQuota(
   account: String = "alice",
   agent: AgentKind = .claudeCode,
   windows: [QuotaWindow] = [QuotaWindow(windowMinutes: 300, usedPercent: 10.0, resetsAt: nil)],
