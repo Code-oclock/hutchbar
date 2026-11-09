@@ -22,7 +22,8 @@ GPL-3.0-or-later; see [LICENSE](LICENSE).
   only through a gateway (ccr) sit in a separate collapsed list, since a gateway cannot
   tell which subscription each alias is.
 - **Spending:** tokens and cost at API prices per agent and model, by hour or day.
-- **Attention pill** at the top of the screen when an agent waits longer than a threshold.
+- **Attention pill** at the top of the screen and a **system notification** when an agent
+  waits longer than a threshold; click either to jump to it.
 
 Agents: Claude Code, Codex (CLI, desktop, IDE), Antigravity, Gemini CLI, Qwen Code,
 OpenCode, GitHub Copilot CLI. Not every agent exposes every kind of data; hutchbar shows
@@ -34,9 +35,11 @@ the network requests its agents make.
 ## Claude Code hooks
 
 Without hooks, hutchbar infers Claude Code's state from its transcripts. With hooks it
-knows exactly when Claude asks for an approval or finishes a turn. The panel footer shows
-whether they are installed and offers the snippet for `~/.claude/settings.json`; the
-hooks only run `hutchbar --hook`, which appends a content-free event to
+knows exactly when Claude asks for an approval or finishes a turn. Click **Установить** /
+**Install** in the panel footer: after a confirmation it adds hutchbar's hooks to
+`~/.claude/settings.json` (and other Claude profiles), keeping every other key and hook and
+a dated backup next to the file. «Удалить хуки Claude…» in the right-click menu removes
+them. The hooks only run `hutchbar --hook`, which appends a content-free event to
 `~/Library/Application Support/hutchbar/events.jsonl`.
 
 ## Privacy
@@ -113,8 +116,8 @@ CodeQL and provenance attestations run only after the repository becomes public.
 ## Roadmap
 
 - v0.1: done — sessions, nested calls, limits, spending, attention pill, terminal
-  navigation, seven agents. Remaining: one-click Claude hooks, system notifications,
-  first signed release.
+  navigation, seven agents, one-click Claude hooks, system notifications. Remaining: the
+  first release.
 - Next: Sparkle 2 updates with EdDSA signatures and a Code-oclock Homebrew tap.
   Neither is implemented here.
 - v0.2: hutch network approval UI only after the client-identity/trust design is reviewed.
