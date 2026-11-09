@@ -188,8 +188,8 @@ public struct UsageLedger: Equatable, Sendable, Codable {
     )
   }
 
-  /// Records a single usage event.
-  public mutating func record(_ event: UsageEvent) {
+  /// Records a single usage event with an optional explicit USD cost override.
+  public mutating func record(_ event: UsageEvent, cost explicitCost: Double? = nil) {
     let dayKey = DayProviderModelKey(day: event.day, provider: event.provider, model: event.model)
     byDayProviderModel[dayKey, default: .zero] += event.tokens
 
@@ -204,7 +204,10 @@ public struct UsageLedger: Equatable, Sendable, Codable {
     )
     byDayHourProviderModel[detailKey, default: .zero] += event.tokens
 
-    if let eventCost = ModelPriceTable.cost(
+    if let explicitCost {
+      costByDayProviderModel[dayKey, default: 0.0] += explicitCost
+      costByDayHourProviderModel[detailKey, default: 0.0] += explicitCost
+    } else if let eventCost = ModelPriceTable.cost(
       model: event.model,
       tokens: event.tokens,
       isFast: event.isFast
