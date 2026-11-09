@@ -63,7 +63,7 @@ Verified live with codex-cli 0.162.1.
 - Every 5 min in the background; every 60 s while the panel is open; 60 s after a known `resetsAt` passes.
 - Failures: `.unreachable` → retry after 5, 10, 20, 30 min; `.missing`, `.needsSignIn`, `.outdated` → 30 min.
 - Codex readings from session logs (`token_count.rate_limits`, already parsed) keep arriving in between; the newest `observedAt` per account wins.
-- ccr stays a source for users whose accounts live in ccr. A ccr account and a CLI account are the same account when their weekly `resetsAt` match to the minute; then they are shown once, under the ccr name.
+- ccr stays a source for users whose accounts live in ccr. **Changed 2026-11-09:** a gateway (ccr) knows only its own aliases, not which subscription each one is, so its accounts are never merged with direct ones (the old rule — same weekly `resetsAt` to the minute — mislabelled them). The card shows direct accounts (agent CLI, app, session log) first; each gateway's accounts sit under them in a collapsed list «через ccr · N» (open from the start when there are no direct accounts), duplicates allowed. Gateway aliases never merge with each other either. A direct account is marked «сейчас» only on real evidence (its session log) when the agent also has gateway accounts; without gateways the newest reading may stand for it, as before. A stale reading names its day when it is not from today («данные от 4 нояб. 19:02»).
 
 ## 6. Presentation rules
 

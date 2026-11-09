@@ -92,7 +92,11 @@ public struct AccountQuotaPresentation: Equatable, Sendable, Identifiable {
 public struct ProviderQuotaCard: Equatable, Sendable, Identifiable {
   public var id: String { agent.rawValue }
   public let agent: AgentKind
+  /// Accounts read on this Mac directly from the agent (its CLI, app or session logs).
   public let accounts: [AccountQuotaPresentation]
+  /// Accounts seen only through a gateway (ccr), shown apart and collapsed; may repeat
+  /// a direct account, since a gateway cannot tell which subscription it is.
+  public let gateways: [GatewayQuotaGroup]
 
   public var primaryAccountName: String { accounts.first?.name ?? "" }
   public var secondaryAccounts: [AccountQuotaPresentation] { Array(accounts.dropFirst()) }
@@ -101,9 +105,12 @@ public struct ProviderQuotaCard: Equatable, Sendable, Identifiable {
   public var observedAt: Date { accounts.first?.observedAt ?? .distantPast }
   public var isStale: Bool { accounts.first?.isStale ?? false }
 
-  public init(agent: AgentKind, accounts: [AccountQuotaPresentation]) {
+  public init(
+    agent: AgentKind, accounts: [AccountQuotaPresentation], gateways: [GatewayQuotaGroup] = []
+  ) {
     self.agent = agent
     self.accounts = accounts
+    self.gateways = gateways
   }
 }
 
@@ -142,16 +149,22 @@ public struct QuotaPresentation: Equatable, Sendable {
       let agentQuotas = quotas.filter { $0.agent == agent }
       guard !agentQuotas.isEmpty else { continue }
 
+      let directQuotas = agentQuotas.filter { $0.source.gatewayName == nil }
+      let gateways = Self.buildGatewayGroups(
+        agent: agent, quotas: agentQuotas, now: now, timeZone: timeZone, language: language)
       let accounts = Self.buildAccounts(
         agent: agent,
-        quotas: agentQuotas,
+        quotas: directQuotas,
         now: now,
         timeZone: timeZone,
-        language: language
+        language: language,
+        // Without gateways the newest reading may stand for "now"; with them, a direct
+        // account is "now" only on real evidence (its session log).
+        guessCurrent: gateways.isEmpty
       )
-      guard !accounts.isEmpty else { continue }
+      guard !accounts.isEmpty || !gateways.isEmpty else { continue }
 
-      cardList.append(ProviderQuotaCard(agent: agent, accounts: accounts))
+      cardList.append(ProviderQuotaCard(agent: agent, accounts: accounts, gateways: gateways))
     }
 
     self.cards = cardList
@@ -347,23 +360,12 @@ extension QuotaPresentation {
     return anyRecords.max(by: { $0.observedAt < $1.observedAt })?.resetCredits
   }
 
-  private static func sortQuotaWindows(_ rawWindows: [QuotaWindow]) -> [QuotaWindow] {
-    rawWindows.sorted { lhs, rhs in
-      let lhsHasScope = lhs.scope != nil && !(lhs.scope?.isEmpty ?? true)
-      let rhsHasScope = rhs.scope != nil && !(rhs.scope?.isEmpty ?? true)
-      if lhsHasScope != rhsHasScope {
-        return !lhsHasScope && rhsHasScope
-      }
-      if lhs.windowMinutes != rhs.windowMinutes {
-        return lhs.windowMinutes < rhs.windowMinutes
-      }
-      return (lhs.scope ?? "") < (rhs.scope ?? "")
-    }
-  }
-
   /// The account in real use: newest `.sessionLog` / `.ccr` reading; else the newest reading.
-  private static func selectCurrentClusterName(_ clusters: [MergedCluster]) -> String? {
+  private static func selectCurrentClusterName(_ clusters: [MergedCluster], guess: Bool)
+    -> String?
+  {
     let hasAnyRealWork = clusters.contains { $0.latestRealWorkDate != nil }
+    if !hasAnyRealWork && !guess { return nil }
     if hasAnyRealWork {
       return clusters.max(by: { lhs, rhs in
         let lhsDate = lhs.latestRealWorkDate ?? .distantPast
@@ -386,14 +388,16 @@ extension QuotaPresentation {
     }
   }
 
-  private static func buildAccounts(
+  static func buildAccounts(
     agent: AgentKind,
     quotas: [AccountQuota],
     now: Date,
     timeZone: TimeZone,
-    language: L10n.Language
+    language: L10n.Language,
+    mergeByReset: Bool = true,
+    guessCurrent: Bool = true
   ) -> [AccountQuotaPresentation] {
-    let rawGroups = clusterQuotas(quotas)
+    let rawGroups = mergeByReset ? clusterQuotas(quotas) : quotas.map { [$0] }
     guard !rawGroups.isEmpty else { return [] }
 
     var clusters: [MergedCluster] = []
@@ -420,7 +424,7 @@ extension QuotaPresentation {
       )
     }
 
-    let currentClusterName = selectCurrentClusterName(clusters)
+    let currentClusterName = selectCurrentClusterName(clusters, guess: guessCurrent)
 
     var result: [AccountQuotaPresentation] = []
     result.reserveCapacity(clusters.count)
@@ -442,10 +446,8 @@ extension QuotaPresentation {
 
       let asOfText: String?
       if isStale {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm"
-        formatter.timeZone = timeZone
-        let timeStr = formatter.string(from: cluster.numbersRecord.observedAt)
+        let timeStr = asOfMoment(
+          cluster.numbersRecord.observedAt, now: now, timeZone: timeZone, language: language)
         asOfText = L10n.dataAsOf(timeStr, language: language)
       } else {
         asOfText = nil

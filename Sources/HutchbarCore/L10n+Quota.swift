@@ -83,4 +83,12 @@ extension L10n {
     case .en: return "\(windowName.lowercased()): remaining \(percent)%"
     }
   }
+
+  /// Header of a gateway's collapsed account list: «через ccr · 3» / "via ccr · 3".
+  public static func viaGateway(_ name: String, accounts: Int, language: Language? = nil)
+    -> String
+  {
+    (language ?? currentLanguage()) == .ru
+      ? "через \(name) · \(accounts)" : "via \(name) · \(accounts)"
+  }
 }
